@@ -1,0 +1,16 @@
+{
+  "$schema": "./.dt-app/app.config.schema.json",
+  "environmentUrl": "https://YOUR_ENVIRONMENT.apps.dynatrace.com/",
+  "app": {
+    "name": "Monthly Review Dashboard",
+    "version": "1.2.0",
+    "description": "Monthly trend analysis for frontend observability metrics",
+    "id": "my.monthly.review",
+    "scopes": [
+      { "name": "storage:user.events:read", "comment": "query user.events for frontend list" },
+      { "name": "storage:metrics:read", "comment": "timeseries DQL queries for monthly metrics" },
+      { "name": "storage:buckets:read", "comment": "required for DQL query execution" },
+      { "name": "davis-copilot:conversations:execute", "comment": "generate analyst notes via Davis CoPilot" }
+    ]
+  }
+}

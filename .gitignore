@@ -1,0 +1,28 @@
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+
+# ── Build output ─────────────────────────────────────────────
+dist/
+
+# ── Dynatrace toolkit: SECRETS & local state ─────────────────
+# .tokens.json holds live access/refresh tokens — NEVER commit
+.dt-app/.tokens.json
+.dt-app/logs/
+.dt-app/build/
+.dt-app/type-checker/
+
+# ── Local editor / tooling state ─────────────────────────────
+.claude/settings.local.json
+
+# ── Environment files ────────────────────────────────────────
+.env
+.env.*
+*.local
+
+# ── Real app config (your tenant URL) — use app.config.example.json ──
+# The deploy script copies the example to this file if it's missing.
+app.config.json
+
+# ── OS cruft ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
