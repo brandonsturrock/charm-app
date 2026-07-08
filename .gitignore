@@ -23,6 +23,11 @@ dist/
 # The deploy script copies the example to this file if it's missing.
 app.config.json
 
+# ── Deployment scripts (local use only) ──────────────────────
+deploy.ps1
+deploy.sh
+DEPLOYMENT_OPTIONS.md
+
 # ── OS cruft ─────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
