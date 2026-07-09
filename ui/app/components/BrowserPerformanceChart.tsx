@@ -9,7 +9,6 @@ import {
   ResponsiveContainer,
   Cell,
   LabelList,
-  ReferenceArea,
 } from "recharts";
 import { Text } from "@dynatrace/strato-components/typography";
 
@@ -127,7 +126,7 @@ const ROW_HEIGHT = 20;
 const HEADER_HEIGHT = 28;
 const AXIS_HEIGHT = 4;
 const MONTH_LABEL_WIDTH = 72;
-const PANEL_RIGHT_MARGIN = 52;
+const PANEL_RIGHT_MARGIN = 0;
 const GROUP_HEADER_HEIGHT = 22;
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -273,7 +272,7 @@ const GroupSection: React.FC<GroupSectionProps> = ({ group, latestMonth, shortLa
                     barSize={barHeight}
                     barCategoryGap={gap}
                   >
-                    <CartesianGrid horizontal={false} stroke={TOKEN.borderDefault} strokeOpacity={0.6} />
+                    <CartesianGrid horizontal={false} verticalPoints={[showYAxis ? monthLabelW : 0]} stroke={TOKEN.borderDefault} strokeOpacity={1} strokeWidth={1.5} />
                     <XAxis
                       type="number"
                       domain={domain}
@@ -297,18 +296,9 @@ const GroupSection: React.FC<GroupSectionProps> = ({ group, latestMonth, shortLa
                       cursor={{ fill: TOKEN.containerSubdued }}
                       wrapperStyle={{ zIndex: 9999 }}
                     />
-                    <ReferenceArea
-                      y1={latestMonth}
-                      y2={latestMonth}
-                      fill={TOKEN.containerSubdued}
-                      stroke="rgba(255,255,255,0.12)"
-                      strokeWidth={1}
-                      ifOverflow="visible"
-                    />
                     <Bar
                       dataKey={panel.key}
                       radius={[0, 3, 3, 0]}
-                      background={{ fill: TOKEN.containerSubdued, radius: 3 }}
                     >
                       {group.rows.map((entry, idx) => {
                         const val = entry[panel.key] as number;

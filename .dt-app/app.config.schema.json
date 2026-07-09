@@ -1217,20 +1217,11 @@
         "schema": {
           "type": "object",
           "properties": {
-            "type": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            }
-          }
+            "type": {}
+          },
+          "required": [
+            "type"
+          ]
         }
       },
       "required": [
@@ -1250,75 +1241,39 @@
             "dt.query": {
               "type": "object",
               "properties": {
-                "type": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                }
-              }
+                "type": {}
+              },
+              "required": [
+                "type"
+              ]
             },
             "dt.timeframe": {
               "type": "object",
               "properties": {
-                "type": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                }
-              }
+                "type": {}
+              },
+              "required": [
+                "type"
+              ]
             },
             "dt.entity.host": {
               "type": "object",
               "properties": {
-                "type": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                }
-              }
+                "type": {}
+              },
+              "required": [
+                "type"
+              ]
             }
           },
           "additionalProperties": {
             "type": "object",
             "properties": {
-              "type": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                ]
-              }
-            }
+              "type": {}
+            },
+            "required": [
+              "type"
+            ]
           }
         }
       },

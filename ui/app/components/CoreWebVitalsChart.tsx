@@ -9,7 +9,6 @@ import {
   ResponsiveContainer,
   Cell,
   LabelList,
-  ReferenceArea,
 } from "recharts";
 import { Text } from "@dynatrace/strato-components/typography";
 import { Flex } from "@dynatrace/strato-components/layouts";
@@ -109,7 +108,8 @@ const ROW_HEIGHT = 28;
 const HEADER_HEIGHT = 34;
 const AXIS_HEIGHT = 4;
 const MONTH_LABEL_WIDTH = 72;
-const PANEL_RIGHT_MARGIN = 52;
+const PANEL_RIGHT_MARGIN = 0;
+const CLS_PANEL_RIGHT_MARGIN = 0;
 
 // ── Tooltip ──────────────────────────────────────────────────────────────────
 const PanelTooltip = ({
@@ -181,7 +181,7 @@ const MetricPanel: React.FC<MetricPanelProps> = ({ data, panel, showYAxis, heigh
   const tickSz = Math.round(12 * fontScale);
   const labelSz = Math.round(11 * fontScale);
   const monthLabelW = Math.round(MONTH_LABEL_WIDTH * fontScale);
-  const rightMargin = Math.round(PANEL_RIGHT_MARGIN * fontScale);
+  const rightMargin = Math.round((panel.key === "cls" ? CLS_PANEL_RIGHT_MARGIN : PANEL_RIGHT_MARGIN) * fontScale);
 
   return (
     <div style={{ flex: "1 1 0", minWidth: shortLabels ? 90 : 160, display: "flex", flexDirection: "column" }}>
@@ -207,7 +207,7 @@ const MetricPanel: React.FC<MetricPanelProps> = ({ data, panel, showYAxis, heigh
           barSize={barHeight}
           barCategoryGap={gap}
         >
-          <CartesianGrid horizontal={false} stroke={TOKEN.borderDefault} strokeOpacity={0.6} />
+          {showYAxis && <CartesianGrid horizontal={false} verticalPoints={[monthLabelW]} stroke={TOKEN.borderDefault} strokeOpacity={1} strokeWidth={1.5} />}
           <XAxis
             type="number"
             domain={domain}
@@ -230,18 +230,9 @@ const MetricPanel: React.FC<MetricPanelProps> = ({ data, panel, showYAxis, heigh
             cursor={{ fill: TOKEN.containerSubdued }}
             wrapperStyle={{ zIndex: 9999 }}
           />
-          <ReferenceArea
-            y1={latestMonth}
-            y2={latestMonth}
-            fill={TOKEN.containerSubdued}
-            stroke="rgba(255,255,255,0.12)"
-            strokeWidth={1}
-            ifOverflow="visible"
-          />
           <Bar
             dataKey={panel.key}
             radius={[0, 3, 3, 0]}
-            background={{ fill: TOKEN.containerSubdued, radius: 3 }}
             isAnimationActive={false}
           >
             {data.map((entry, index) => {
@@ -267,21 +258,6 @@ const MetricPanel: React.FC<MetricPanelProps> = ({ data, panel, showYAxis, heigh
   );
 };
 
-// ── Divider ───────────────────────────────────────────────────────────────────
-const PanelDivider: React.FC<{ height: number }> = ({ height }) => (
-  <div
-    style={{
-      width: 1,
-      background: TOKEN.borderDefault,
-      flexShrink: 0,
-      alignSelf: "flex-start",
-      marginTop: HEADER_HEIGHT,
-      height: height + AXIS_HEIGHT,
-    }}
-  />
-);
-
-
 // ── Root ──────────────────────────────────────────────────────────────────────
 interface CoreWebVitalsChartProps {
   data: WebVitalsDataPoint[];
@@ -294,26 +270,23 @@ interface CoreWebVitalsChartProps {
 export const CoreWebVitalsChart: React.FC<CoreWebVitalsChartProps> = ({ data, shortLabels, rowHeight = ROW_HEIGHT, barHeight = BAR_HEIGHT, fontScale }) => {
   const chartHeight = data.length * rowHeight;
   const latestMonth = data[data.length - 1]?.month ?? "";
-
   return (
     <div style={{ userSelect: "none" }} className="dt-chart-nofocus">
       <Flex width="100%" alignItems="flex-start">
-        <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
+        <div style={{ flex: 1, display: "flex", minWidth: 0, borderLeft: `1.5px solid ${TOKEN.borderDefault}`, borderRight: `1.5px solid ${TOKEN.borderDefault}` }}>
           {PANELS.map((panel, i) => (
-            <React.Fragment key={panel.key}>
-              {i > 0 && <PanelDivider height={chartHeight} />}
-              <MetricPanel
-                data={data}
-                panel={panel}
-                showYAxis={i === 0}
-                height={chartHeight + AXIS_HEIGHT}
-                latestMonth={latestMonth}
-                shortLabels={shortLabels}
-                rowHeight={rowHeight}
-                barHeight={barHeight}
-                fontScale={fontScale}
-              />
-            </React.Fragment>
+            <MetricPanel
+              key={panel.key}
+              data={data}
+              panel={panel}
+              showYAxis={i === 0}
+              height={chartHeight + AXIS_HEIGHT}
+              latestMonth={latestMonth}
+              shortLabels={shortLabels}
+              rowHeight={rowHeight}
+              barHeight={barHeight}
+              fontScale={fontScale}
+            />
           ))}
         </div>
       </Flex>

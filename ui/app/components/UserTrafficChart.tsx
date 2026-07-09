@@ -9,7 +9,6 @@ import {
   ResponsiveContainer,
   Cell,
   LabelList,
-  ReferenceArea,
 } from "recharts";
 import { Text } from "@dynatrace/strato-components/typography";
 import { Flex } from "@dynatrace/strato-components/layouts";
@@ -89,8 +88,8 @@ const ROW_HEIGHT = 28;
 const HEADER_HEIGHT = 34;
 const AXIS_HEIGHT = 4;
 const MONTH_LABEL_WIDTH = 72;
-const PANEL_RIGHT_MARGIN = 58;
-const SPLIT_PANEL_RIGHT_MARGIN = 72;
+const PANEL_RIGHT_MARGIN = 0;
+const SPLIT_PANEL_RIGHT_MARGIN = 0;
 
 // ── Metric panel tooltip ──────────────────────────────────────────────────────
 const PanelTooltip = ({
@@ -190,20 +189,20 @@ const MetricPanel: React.FC<MetricPanelProps> = ({ data, panel, showYAxis, heigh
   const labelSz = Math.round(11 * fontScale);
   const monthLabelW = Math.round(MONTH_LABEL_WIDTH * fontScale);
   const rightMargin = Math.round(PANEL_RIGHT_MARGIN * fontScale);
+  const chrome = (showYAxis ? monthLabelW : 0) + rightMargin;
 
   return (
-    <div style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: `1 1 ${chrome}px`, minWidth: 0, display: "flex", flexDirection: "column" }}>
       <div style={{ height: HEADER_HEIGHT, display: "flex", alignItems: "center", paddingLeft: showYAxis ? monthLabelW : 0, borderBottom: `1px solid ${TOKEN.borderDefault}` }}>
         <Text style={{ margin: 0, color: TOKEN.textSubtle, fontSize: headerSz, fontWeight: 600 }}>{panel.label}</Text>
       </div>
       <ResponsiveContainer width="100%" height={height}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: rightMargin, left: 0, bottom: 0 }} barSize={barHeight} barCategoryGap={gap}>
-          <CartesianGrid horizontal={false} stroke={TOKEN.borderDefault} strokeOpacity={0.6} />
+          {showYAxis && <CartesianGrid horizontal={false} verticalPoints={[monthLabelW]} stroke={TOKEN.borderDefault} strokeOpacity={1} strokeWidth={1.5} />}
           <XAxis type="number" domain={domain} tick={false} axisLine={false} tickLine={false} height={AXIS_HEIGHT} />
           <YAxis type="category" dataKey="month" hide={!showYAxis} width={showYAxis ? monthLabelW : 0} tick={{ fill: TOKEN.textDefault, fontFamily: TOKEN.font, fontSize: tickSz }} axisLine={false} tickLine={false} />
           <Tooltip content={<PanelTooltip panel={panel} data={data} />} cursor={{ fill: TOKEN.containerSubdued }} wrapperStyle={{ zIndex: 9999 }} />
-          <ReferenceArea y1={latestMonth} y2={latestMonth} fill={TOKEN.containerSubdued} stroke={panel.color} strokeOpacity={0.25} strokeWidth={1} ifOverflow="visible" />
-          <Bar dataKey={panel.key} radius={[0, 3, 3, 0]} background={{ fill: TOKEN.containerSubdued, radius: 3 }} isAnimationActive={false}>
+          <Bar dataKey={panel.key} radius={[0, 3, 3, 0]} isAnimationActive={false}>
             {data.map((entry, index) => (
               <Cell key={index} fill={entry.month === latestMonth ? panel.color : `${panel.color}77`} />
             ))}
@@ -230,52 +229,43 @@ const DeviceSplitPanel: React.FC<DeviceSplitPanelProps> = ({ data, height, lates
   const headerSz = Math.round(12 * fontScale);
   const labelSz = Math.round(11 * fontScale);
   const splitRightMargin = Math.round(SPLIT_PANEL_RIGHT_MARGIN * fontScale);
+  const centerLabel = (key: "pctDesktop" | "pctMobile") => (props: unknown) => {
+    const { x, y, width, height: h, index } = props as { x: number; y: number; width: number; height: number; index: number };
+    const d = data[index];
+    if (!d || d[key] < 10) return null;
+    return (
+      <text x={x + width / 2} y={y + h / 2} dy="0.35em" textAnchor="middle" fontSize={labelSz} fontWeight={700} fill="#fff" fontFamily={TOKEN.font}>
+        {Math.round(d[key])}%
+      </text>
+    );
+  };
   return (
-  <div style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}>
+  <div style={{ flex: `1 1 ${splitRightMargin}px`, minWidth: 0, display: "flex", flexDirection: "column" }}>
     <div style={{ height: HEADER_HEIGHT, display: "flex", alignItems: "center", paddingLeft: 0, borderBottom: `1px solid ${TOKEN.borderDefault}` }}>
       <Text style={{ margin: 0, color: TOKEN.textSubtle, fontSize: headerSz, fontWeight: 600 }}>Device Split</Text>
     </div>
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} layout="vertical" margin={{ top: 0, right: splitRightMargin, left: 0, bottom: 0 }} barSize={barHeight} barCategoryGap={gap}>
-        <CartesianGrid horizontal={false} stroke={TOKEN.borderDefault} strokeOpacity={0.6} />
         <XAxis type="number" domain={[0, 100]} tick={false} axisLine={false} tickLine={false} height={AXIS_HEIGHT} />
         <YAxis type="category" dataKey="month" hide width={0} axisLine={false} tickLine={false} />
         <Tooltip content={<DeviceSplitTooltip data={data} />} cursor={{ fill: TOKEN.containerSubdued }} wrapperStyle={{ zIndex: 9999 }} />
-        <ReferenceArea y1={latestMonth} y2={latestMonth} fill={TOKEN.containerSubdued} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible" />
-        <Bar dataKey="pctDesktop" stackId="split" fill={DESKTOP_COLOR} background={{ fill: TOKEN.containerSubdued, radius: 3 }} isAnimationActive={false}>
+        <Bar dataKey="pctDesktop" stackId="split" fill={DESKTOP_COLOR} isAnimationActive={false}>
           {data.map((entry, i) => (
             <Cell key={i} fill={entry.month === latestMonth ? DESKTOP_COLOR : `${DESKTOP_COLOR}77`} />
           ))}
+          <LabelList dataKey="pctDesktop" content={centerLabel("pctDesktop")} />
         </Bar>
         <Bar dataKey="pctMobile" stackId="split" radius={[0, 3, 3, 0]} isAnimationActive={false}>
           {data.map((entry, i) => (
             <Cell key={i} fill={entry.month === latestMonth ? MOBILE_COLOR : `${MOBILE_COLOR}77`} />
           ))}
-          <LabelList
-            dataKey="pctMobile"
-            position="right"
-            content={(props) => {
-              const { x, y, width, height: h, index } = props as { x: number; y: number; width: number; height: number; index: number };
-              const d = data[index];
-              if (!d) return null;
-              return (
-                <text x={x + width + 4} y={y + h / 2} dy="0.35em" fontSize={labelSz} fontWeight={600} fill={TOKEN.textSubtle} fontFamily={TOKEN.font}>
-                  {d.pctDesktop.toFixed(0)}%D / {d.pctMobile.toFixed(0)}%M
-                </text>
-              );
-            }}
-          />
+          <LabelList dataKey="pctMobile" content={centerLabel("pctMobile")} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>
   </div>
   );
 };
-
-// ── Vertical divider ──────────────────────────────────────────────────────────
-const PanelDivider: React.FC<{ height: number }> = ({ height }) => (
-  <div style={{ width: 1, background: TOKEN.borderDefault, flexShrink: 0, alignSelf: "flex-start", marginTop: HEADER_HEIGHT, height: height + AXIS_HEIGHT }} />
-);
 
 // ── Root component ────────────────────────────────────────────────────────────
 interface UserTrafficChartProps {
@@ -291,14 +281,10 @@ export const UserTrafficChart: React.FC<UserTrafficChartProps> = ({ data, rowHei
 
   return (
     <Flex width="100%" alignItems="flex-start" style={{ userSelect: "none" }} className="dt-chart-nofocus">
-      <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
+      <div style={{ flex: 1, display: "flex", minWidth: 0, borderLeft: `1.5px solid ${TOKEN.borderDefault}`, borderRight: `1.5px solid ${TOKEN.borderDefault}` }}>
         {PANELS.map((panel, i) => (
-          <React.Fragment key={panel.key}>
-            {i > 0 && <PanelDivider height={chartHeight} />}
-            <MetricPanel data={data} panel={panel} showYAxis={i === 0} height={chartHeight + AXIS_HEIGHT} latestMonth={latestMonth} rowHeight={rowHeight} barHeight={barHeight} fontScale={fontScale} />
-          </React.Fragment>
+          <MetricPanel key={panel.key} data={data} panel={panel} showYAxis={i === 0} height={chartHeight + AXIS_HEIGHT} latestMonth={latestMonth} rowHeight={rowHeight} barHeight={barHeight} fontScale={fontScale} />
         ))}
-        <PanelDivider height={chartHeight} />
         <DeviceSplitPanel data={data} height={chartHeight + AXIS_HEIGHT} latestMonth={latestMonth} rowHeight={rowHeight} barHeight={barHeight} fontScale={fontScale} />
       </div>
     </Flex>
