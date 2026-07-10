@@ -2,6 +2,8 @@ import React, { useMemo } from "react";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -71,7 +73,7 @@ interface Props {
 }
 
 export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
-  const { jsRows, reqRows, deviceTypes } = useMemo(() => {
+  const { jsRows, reqRows, jsCountRows, reqCountRows, deviceTypes } = useMemo(() => {
     // per-day per-device: { jsErrorSessions, reqErrorSessions, totalSessions }
     type DayDevice = { js: number; req: number; total: number };
     const dayDeviceMap = new Map<number, Map<string, DayDevice>>();
@@ -102,7 +104,7 @@ export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
       ? allDaysInRange(fillRange[0], fillRange[1])
       : Array.from(dayDeviceMap.keys()).sort((a, b) => a - b);
 
-    function buildRows(errorKey: "js" | "req"): PivotedRow[] {
+    function buildPctRows(errorKey: "js" | "req"): PivotedRow[] {
       return dayTsList.map((ts) => {
         const row: PivotedRow = {
           day: new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
@@ -121,7 +123,27 @@ export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
       });
     }
 
-    return { jsRows: buildRows("js"), reqRows: buildRows("req"), deviceTypes };
+    function buildCountRows(errorKey: "js" | "req"): PivotedRow[] {
+      return dayTsList.map((ts) => {
+        const row: PivotedRow = {
+          day: new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+          dayTs: ts,
+        };
+        const devMap = dayDeviceMap.get(ts);
+        deviceTypes.forEach((dt) => {
+          row[dt] = devMap?.get(dt)?.[errorKey] ?? 0;
+        });
+        return row;
+      });
+    }
+
+    return {
+      jsRows: buildPctRows("js"),
+      reqRows: buildPctRows("req"),
+      jsCountRows: buildCountRows("js"),
+      reqCountRows: buildCountRows("req"),
+      deviceTypes,
+    };
   }, [data, fillRange]);
 
   if (jsRows.length === 0) return null;
@@ -129,12 +151,12 @@ export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
   const tickInterval = Math.max(1, Math.ceil(jsRows.length / 7)) - 1;
   const axisStyle = { fontSize: 11, fill: TOKEN.textSubtle, fontFamily: FONT };
 
-  const chart = (rows: PivotedRow[], title: string) => (
+  const lineChart = (rows: PivotedRow[], title: string) => (
     <div>
       <div style={{ fontSize: 11, color: TOKEN.textSubtle, fontFamily: FONT, marginBottom: 6, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
         {title}
       </div>
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={180}>
         <LineChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={TOKEN.grid} vertical={false} />
           <XAxis dataKey="day" tick={axisStyle} axisLine={false} tickLine={false} interval={tickInterval} />
@@ -166,10 +188,67 @@ export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
     </div>
   );
 
+  const CountTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    const total = payload.reduce((s: number, p: any) => s + (p.value ?? 0), 0);
+    return (
+      <div style={{ background: TOKEN.surface, border: `1px solid ${TOKEN.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, fontFamily: FONT }}>
+        <div style={{ color: TOKEN.textSubtle, marginBottom: 4, fontSize: 11 }}>{label}</div>
+        {[...payload].reverse().map((p: any) => (
+          <div key={p.dataKey} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 2 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: p.fill, flexShrink: 0, display: "inline-block" }} />
+            <span style={{ color: "rgba(255,255,255,0.7)", textTransform: "capitalize" }}>{p.name}</span>
+            <span style={{ color: "#fff", fontWeight: 600, marginLeft: "auto", paddingLeft: 12 }}>{(p.value as number).toLocaleString()}</span>
+          </div>
+        ))}
+        <div style={{ borderTop: `1px solid ${TOKEN.border}`, marginTop: 4, paddingTop: 4, display: "flex", gap: 8 }}>
+          <span style={{ color: TOKEN.textSubtle, fontSize: 11 }}>Total</span>
+          <span style={{ color: "#fff", fontWeight: 600, marginLeft: "auto" }}>{total.toLocaleString()}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const barChart = (rows: PivotedRow[], title: string) => (
+    <div>
+      <div style={{ fontSize: 11, color: TOKEN.textSubtle, fontFamily: FONT, marginBottom: 6, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
+        {title}
+      </div>
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 8 }} barCategoryGap="20%">
+          <CartesianGrid vertical={false} stroke={TOKEN.grid} />
+          <XAxis dataKey="day" tick={axisStyle} axisLine={false} tickLine={false} interval={tickInterval} />
+          <YAxis
+            tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)}
+            tick={axisStyle}
+            axisLine={false}
+            tickLine={false}
+            width={40}
+          />
+          <Tooltip content={<CountTooltip />} wrapperStyle={{ zIndex: 9999 }} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+          <Legend iconType="square" iconSize={9} wrapperStyle={{ fontSize: 11, paddingTop: 6, fontFamily: FONT, color: "rgba(255,255,255,0.6)" }} />
+          {deviceTypes.map((dt, i) => (
+            <Bar
+              key={dt}
+              dataKey={dt}
+              name={dt.charAt(0).toUpperCase() + dt.slice(1)}
+              fill={DEVICE_COLORS[dt] ?? "#888EA8"}
+              stackId="device"
+              radius={i === deviceTypes.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+              isAnimationActive={false}
+            />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {chart(jsRows, "JS Error Rate (% of sessions)")}
-      {chart(reqRows, "Request Error Rate (% of sessions)")}
+      {lineChart(jsRows, "JS Error Rate (% of sessions)")}
+      {barChart(jsCountRows, "JS Error Sessions (daily)")}
+      {lineChart(reqRows, "Request Error Rate (% of sessions)")}
+      {barChart(reqCountRows, "Request Error Sessions (daily)")}
     </div>
   );
 };
