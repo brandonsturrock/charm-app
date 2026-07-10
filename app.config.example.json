@@ -3,7 +3,7 @@
   "environmentUrl": "https://YOUR_ENVIRONMENT.apps.dynatrace.com/",
   "app": {
     "name": "Monthly Review Dashboard",
-    "version": "1.3.0",
+    "version": "1.3.2",
     "description": "Monthly trend analysis for frontend observability metrics",
     "id": "my.monthly.review",
     "scopes": [
