@@ -25,6 +25,7 @@ import { CwvTierChart, type CwvTierData } from "../components/CwvTierChart";
 import { CwvSingleMetricChart, type CwvDailyDevicePoint } from "../components/CwvSingleMetricChart";
 import { exportDashboardPdf, exportDashboard3PagePdf } from "../utils/pdfExport";
 import { TopErrorsTable, statusCodeRenderer, type TopErrorColumn } from "../components/TopErrorsTable";
+import { CwvDistributionChart } from "../components/CwvDistributionChart";
 
 function dqlEscape(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -154,6 +155,41 @@ const buildCmDailyCwvQuery = (fn: string) => `timeseries {
 | fields day, lcp, inp, cls, device.type
 | filterOut isNull(device.type)
 | sort day asc`;
+
+const buildCmCwvDistributionQuery = (fn: string) => `fetch user.events, from: (now()-1M)@M, to: now()@M
+| filter frontend.name == "${dqlEscape(fn)}"
+| filter dt.rum.user_type == "real_user"
+| filter characteristics.classifier == "page_summary"
+| fieldsAdd
+    lcp_ms = toLong(web_vitals.largest_contentful_paint) / 1000000,
+    inp_ms = toLong(web_vitals.interaction_to_next_paint) / 1000000
+| summarize
+    lcp_b0  = countIf(lcp_ms < 1000),
+    lcp_b1  = countIf(lcp_ms >= 1000  and lcp_ms < 2000),
+    lcp_b2  = countIf(lcp_ms >= 2000  and lcp_ms < 3000),
+    lcp_b3  = countIf(lcp_ms >= 3000  and lcp_ms < 4000),
+    lcp_b4  = countIf(lcp_ms >= 4000  and lcp_ms < 5000),
+    lcp_b5  = countIf(lcp_ms >= 5000  and lcp_ms < 6000),
+    lcp_b6  = countIf(lcp_ms >= 6000  and lcp_ms < 7000),
+    lcp_b7  = countIf(lcp_ms >= 7000  and lcp_ms < 8000),
+    lcp_b8  = countIf(lcp_ms >= 8000  and lcp_ms < 9000),
+    lcp_b9  = countIf(lcp_ms >= 9000  and lcp_ms < 10000),
+    lcp_b10 = countIf(lcp_ms >= 10000),
+    lcp_total = countIf(isNotNull(lcp_ms)),
+    lcp_p50 = percentile(lcp_ms, 50),
+    inp_b0  = countIf(inp_ms < 1000),
+    inp_b1  = countIf(inp_ms >= 1000  and inp_ms < 2000),
+    inp_b2  = countIf(inp_ms >= 2000  and inp_ms < 3000),
+    inp_b3  = countIf(inp_ms >= 3000  and inp_ms < 4000),
+    inp_b4  = countIf(inp_ms >= 4000  and inp_ms < 5000),
+    inp_b5  = countIf(inp_ms >= 5000  and inp_ms < 6000),
+    inp_b6  = countIf(inp_ms >= 6000  and inp_ms < 7000),
+    inp_b7  = countIf(inp_ms >= 7000  and inp_ms < 8000),
+    inp_b8  = countIf(inp_ms >= 8000  and inp_ms < 9000),
+    inp_b9  = countIf(inp_ms >= 9000  and inp_ms < 10000),
+    inp_b10 = countIf(inp_ms >= 10000),
+    inp_total = countIf(isNotNull(inp_ms)),
+    inp_p50 = percentile(inp_ms, 50)`;
 
 const buildCmTopExceptionsQuery = (fn: string) => `fetch user.events, from: (now()-1M)@M, to: now()@M
 | filter frontend.name == "${dqlEscape(fn)}"
@@ -294,6 +330,8 @@ interface CmDeviceCompareRecord {
   inp_p75: number | null;
   cls_p75: number | null;
 }
+
+type CmCwvDistributionRecord = import("../components/CwvDistributionChart").CwvDistributionRecord;
 
 interface CmTopExceptionRecord {
   count: number | null;
@@ -466,6 +504,7 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   const [activeCmErrorCountQuery, setActiveCmErrorCountQuery] = useState<string | null>(null);
   const [activeCmTopExceptionsQuery, setActiveCmTopExceptionsQuery] = useState<string | null>(null);
   const [activeCmTopRequestErrorsQuery, setActiveCmTopRequestErrorsQuery] = useState<string | null>(null);
+  const [activeCmCwvDistributionQuery, setActiveCmCwvDistributionQuery] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isExporting3Page, setIsExporting3Page] = useState(false);
   const [notesForExport, setNotesForExport] = useState("");
@@ -547,6 +586,9 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   );
   const { data: cmTopRequestErrorsData, isLoading: cmTopRequestErrorsLoading } = useDql(
     { query: activeCmTopRequestErrorsQuery! }, { enabled: !!activeCmTopRequestErrorsQuery }
+  );
+  const { data: cmCwvDistributionData, isLoading: cmCwvDistributionLoading } = useDql(
+    { query: activeCmCwvDistributionQuery! }, { enabled: !!activeCmCwvDistributionQuery }
   );
 
   const frontendNames: string[] = useMemo(
@@ -713,6 +755,11 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
     }));
   }, [cmErrorCountData]);
 
+  const cmCwvDistributionRecord = useMemo(
+    () => (cmCwvDistributionData?.records?.[0] ?? null) as CmCwvDistributionRecord | null,
+    [cmCwvDistributionData]
+  );
+
   const cmTopExceptionRows = useMemo(
     () => (cmTopExceptionsData?.records ?? []) as unknown as CmTopExceptionRecord[],
     [cmTopExceptionsData]
@@ -782,6 +829,7 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
     setActiveCmErrorCountQuery(value ? buildCmErrorCountQuery(value) : null);
     setActiveCmTopExceptionsQuery(value ? buildCmTopExceptionsQuery(value) : null);
     setActiveCmTopRequestErrorsQuery(value ? buildCmTopRequestErrorsQuery(value) : null);
+    setActiveCmCwvDistributionQuery(value ? buildCmCwvDistributionQuery(value) : null);
   }, []);
 
   const handleExport = () => {
@@ -1100,6 +1148,21 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                   <CwvTierChart data={cmCwvTierRecord} />
                 </Surface>
               )}
+
+              {/* CWV Load Time Distribution */}
+              <Surface elevation="raised" padding={24}>
+                <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Core Web Vitals — Load Time Distribution</Heading>
+                <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
+                  % of page loads in each time bucket (LCP and INP, last month)
+                </Text>
+                {cmCwvDistributionLoading ? (
+                  <Flex justifyContent="center" alignItems="center" style={{ minHeight: 120 }}><ProgressCircle /></Flex>
+                ) : cmCwvDistributionRecord ? (
+                  <CwvDistributionChart data={cmCwvDistributionRecord} />
+                ) : (
+                  <Text>No distribution data available.</Text>
+                )}
+              </Surface>
 
               {/* Daily CWV Trend — three separate charts */}
               {cmCwvLoading ? (
