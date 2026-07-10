@@ -20,10 +20,11 @@ import { PdfLayout, type KpiTile } from "../components/PdfLayout";
 import { PdfLayout3Page, type PdfLayout3PageHandle } from "../components/PdfLayout3Page";
 import { AnalystNotesPanel, type AnalystNotesContext, type CurrentMonthAnalystContext } from "../components/AnalystNotesPanel";
 import { DailyDeviceTrafficChart, type DailyDevicePoint } from "../components/DailyDeviceTrafficChart";
-import { DailyErrorChart, type DailyErrorPoint } from "../components/DailyErrorChart";
+import { DailyErrorChart, type DailyErrorPoint, type DailyErrorCountPoint } from "../components/DailyErrorChart";
 import { CwvTierChart, type CwvTierData } from "../components/CwvTierChart";
 import { CwvSingleMetricChart, type CwvDailyDevicePoint } from "../components/CwvSingleMetricChart";
 import { exportDashboardPdf, exportDashboard3PagePdf } from "../utils/pdfExport";
+import { TopErrorsTable, statusCodeRenderer, type TopErrorColumn } from "../components/TopErrorsTable";
 
 function dqlEscape(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -154,6 +155,36 @@ const buildCmDailyCwvQuery = (fn: string) => `timeseries {
 | filterOut isNull(device.type)
 | sort day asc`;
 
+const buildCmTopExceptionsQuery = (fn: string) => `fetch user.events, from: (now()-1M)@M, to: now()@M
+| filter frontend.name == "${dqlEscape(fn)}"
+| filter dt.rum.user_type == "real_user"
+| filter characteristics.has_exception == true
+| filterOut isNull(exception.type)
+| summarize count = count(), by: {exception.type, exception.message, error.source}
+| sort count desc
+| limit 10`;
+
+const buildCmTopRequestErrorsQuery = (fn: string) => `fetch user.events, from: (now()-1M)@M, to: now()@M
+| filter frontend.name == "${dqlEscape(fn)}"
+| filter dt.rum.user_type == "real_user"
+| filter characteristics.classifier == "error"
+| filter characteristics.has_failed_request == true
+| filterOut isNull(url.path)
+| summarize count = count(), by: {http.request.method, http.response.status_code, url.host, url.path}
+| sort count desc
+| limit 10`;
+
+const buildCmErrorCountQuery = (fn: string) => `timeseries {
+    errors = count(dt.frontend.error.count),
+    t = start()
+  }, by: {device.type, error.type}, interval: 1d, from: (now()-1M)@M, to: now()@M, filter: frontend.name == "${dqlEscape(fn)}"
+| fieldsAdd d = record(t=t[], e=errors[])
+| expand d
+| fieldsAdd day = d[t], error_count = d[e]
+| fields day, error_count, device.type, error.type
+| filterOut isNull(device.type)
+| sort day asc`;
+
 const buildCmErrorsQuery = (fn: string) => `fetch user.events, from: (now()-1M)@M, to: now()@M
 | filter frontend.name == "${dqlEscape(fn)}"
 | filter dt.rum.user_type == "real_user"
@@ -262,6 +293,28 @@ interface CmDeviceCompareRecord {
   lcp_p75: number | null;
   inp_p75: number | null;
   cls_p75: number | null;
+}
+
+interface CmTopExceptionRecord {
+  count: number | null;
+  "exception.type": string | null;
+  "exception.message": string | null;
+  "error.source": string | null;
+}
+
+interface CmTopRequestErrorRecord {
+  count: number | null;
+  "http.request.method": string | null;
+  "http.response.status_code": number | null;
+  "url.host": string | null;
+  "url.path": string | null;
+}
+
+interface CmErrorCountRecord {
+  day: string | number | null;
+  error_count: number | null;
+  "device.type": string | null;
+  "error.type": string | null;
 }
 
 interface CmCwvTierRecord {
@@ -381,6 +434,21 @@ const CmDeviceComparisonTable: React.FC<{ records: CmDeviceCompareRecord[] }> = 
   );
 };
 
+const TOP_EXCEPTION_COLUMNS: TopErrorColumn[] = [
+  { key: "count", label: "#", align: "right", width: 60 },
+  { key: "exception.type", label: "Type", width: 200 },
+  { key: "exception.message", label: "Message" },
+  { key: "error.source", label: "Source", width: 120 },
+];
+
+const TOP_REQUEST_ERROR_COLUMNS: TopErrorColumn[] = [
+  { key: "count", label: "#", align: "right", width: 60 },
+  { key: "http.request.method", label: "Method", align: "center", width: 70 },
+  { key: "http.response.status_code", label: "Status", align: "center", width: 70, render: statusCodeRenderer },
+  { key: "url.host", label: "Host", width: 180 },
+  { key: "url.path", label: "Path" },
+];
+
 export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   const [selectedFrontend, setSelectedFrontend] = useState<string | null>(null);
   const [activeQuery, setActiveQuery] = useState<string | null>(null);
@@ -395,6 +463,9 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   const [activeCmErrorsQuery, setActiveCmErrorsQuery] = useState<string | null>(null);
   const [activeCmDeviceCompareQuery, setActiveCmDeviceCompareQuery] = useState<string | null>(null);
   const [activeCmCwvTierQuery, setActiveCmCwvTierQuery] = useState<string | null>(null);
+  const [activeCmErrorCountQuery, setActiveCmErrorCountQuery] = useState<string | null>(null);
+  const [activeCmTopExceptionsQuery, setActiveCmTopExceptionsQuery] = useState<string | null>(null);
+  const [activeCmTopRequestErrorsQuery, setActiveCmTopRequestErrorsQuery] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isExporting3Page, setIsExporting3Page] = useState(false);
   const [notesForExport, setNotesForExport] = useState("");
@@ -467,6 +538,15 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   );
   const { data: cmCwvTierData } = useDql(
     { query: activeCmCwvTierQuery! }, { enabled: !!activeCmCwvTierQuery }
+  );
+  const { data: cmErrorCountData } = useDql(
+    { query: activeCmErrorCountQuery! }, { enabled: !!activeCmErrorCountQuery }
+  );
+  const { data: cmTopExceptionsData, isLoading: cmTopExceptionsLoading } = useDql(
+    { query: activeCmTopExceptionsQuery! }, { enabled: !!activeCmTopExceptionsQuery }
+  );
+  const { data: cmTopRequestErrorsData, isLoading: cmTopRequestErrorsLoading } = useDql(
+    { query: activeCmTopRequestErrorsQuery! }, { enabled: !!activeCmTopRequestErrorsQuery }
   );
 
   const frontendNames: string[] = useMemo(
@@ -623,6 +703,26 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
     }));
   }, [cmErrorsData]);
 
+  const cmErrorCountChartData: DailyErrorCountPoint[] = useMemo(() => {
+    const raw = (cmErrorCountData?.records ?? []) as unknown as CmErrorCountRecord[];
+    return raw.map((r) => ({
+      day: r.day,
+      deviceType: r["device.type"],
+      errorType: r["error.type"],
+      count: r.error_count,
+    }));
+  }, [cmErrorCountData]);
+
+  const cmTopExceptionRows = useMemo(
+    () => (cmTopExceptionsData?.records ?? []) as unknown as CmTopExceptionRecord[],
+    [cmTopExceptionsData]
+  );
+
+  const cmTopRequestErrorRows = useMemo(
+    () => (cmTopRequestErrorsData?.records ?? []) as unknown as CmTopRequestErrorRecord[],
+    [cmTopRequestErrorsData]
+  );
+
   const cmDeviceCompareRecords: CmDeviceCompareRecord[] = useMemo(
     () => (cmDeviceCompareData?.records ?? []) as unknown as CmDeviceCompareRecord[],
     [cmDeviceCompareData]
@@ -679,6 +779,9 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
     setActiveCmErrorsQuery(value ? buildCmErrorsQuery(value) : null);
     setActiveCmDeviceCompareQuery(value ? buildCmDeviceCompareQuery(value) : null);
     setActiveCmCwvTierQuery(value ? buildCmCwvTierQuery(value) : null);
+    setActiveCmErrorCountQuery(value ? buildCmErrorCountQuery(value) : null);
+    setActiveCmTopExceptionsQuery(value ? buildCmTopExceptionsQuery(value) : null);
+    setActiveCmTopRequestErrorsQuery(value ? buildCmTopRequestErrorsQuery(value) : null);
   }, []);
 
   const handleExport = () => {
@@ -1033,11 +1136,48 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                 {cmErrorsLoading ? (
                   <Flex justifyContent="center" alignItems="center" style={{ minHeight: 120 }}><ProgressCircle /></Flex>
                 ) : cmErrorChartData.length > 0 ? (
-                  <DailyErrorChart data={cmErrorChartData} fillRange={lastMonthRange} />
+                  <DailyErrorChart data={cmErrorChartData} errorCounts={cmErrorCountChartData} fillRange={lastMonthRange} />
                 ) : (
                   <Text>No error session data available.</Text>
                 )}
               </Surface>
+
+              {/* Top Exceptions + Top Request Errors */}
+              <Flex gap={16} alignItems="flex-start">
+                <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
+                  <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Top Exceptions</Heading>
+                  <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
+                    Most frequent JS exceptions last month
+                  </Text>
+                  {cmTopExceptionsLoading ? (
+                    <Flex justifyContent="center" alignItems="center" style={{ minHeight: 80 }}><ProgressCircle /></Flex>
+                  ) : cmTopExceptionRows.length > 0 ? (
+                    <TopErrorsTable
+                      columns={TOP_EXCEPTION_COLUMNS}
+                      rows={cmTopExceptionRows as unknown as Record<string, string | number | null>[]}
+                    />
+                  ) : (
+                    <Text>No exceptions found.</Text>
+                  )}
+                </Surface>
+
+                <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
+                  <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Top Request Errors</Heading>
+                  <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
+                    Most frequent failed HTTP requests last month
+                  </Text>
+                  {cmTopRequestErrorsLoading ? (
+                    <Flex justifyContent="center" alignItems="center" style={{ minHeight: 80 }}><ProgressCircle /></Flex>
+                  ) : cmTopRequestErrorRows.length > 0 ? (
+                    <TopErrorsTable
+                      columns={TOP_REQUEST_ERROR_COLUMNS}
+                      rows={cmTopRequestErrorRows as unknown as Record<string, string | number | null>[]}
+                    />
+                  ) : (
+                    <Text>No request errors found.</Text>
+                  )}
+                </Surface>
+              </Flex>
             </Flex>
           )}
         </Tab>

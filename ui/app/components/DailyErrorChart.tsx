@@ -20,6 +20,13 @@ export interface DailyErrorPoint {
   reqErrorSessions: number | null;
 }
 
+export interface DailyErrorCountPoint {
+  day: string | number | null;
+  deviceType: string | null;
+  errorType: string | null;
+  count: number | null;
+}
+
 interface PivotedRow {
   day: string;
   dayTs: number;
@@ -69,12 +76,21 @@ const PctTooltip = ({ active, payload, label }: any) => {
 
 interface Props {
   data: DailyErrorPoint[];
+  errorCounts?: DailyErrorCountPoint[];
   fillRange?: [number, number];
 }
 
-export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
-  const { jsRows, reqRows, jsCountRows, reqCountRows, deviceTypes } = useMemo(() => {
-    // per-day per-device: { jsErrorSessions, reqErrorSessions, totalSessions }
+const ERROR_TYPE_COLORS: Record<string, string> = {
+  "JavaScript Error": "#F5A623",
+  "exception": "#F5A623",
+  "Failed Request": "#E8345A",
+  "request_error": "#E8345A",
+  "request": "#E8345A",
+};
+const ERROR_TYPE_COLOR_FALLBACKS = ["#7B61FF", "#2ECC85", "#00B8E0", "#888EA8"];
+
+export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange }) => {
+  const { jsRows, reqRows, deviceTypes } = useMemo(() => {
     type DayDevice = { js: number; req: number; total: number };
     const dayDeviceMap = new Map<number, Map<string, DayDevice>>();
     const dtSet = new Set<string>();
@@ -123,28 +139,50 @@ export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
       });
     }
 
-    function buildCountRows(errorKey: "js" | "req"): PivotedRow[] {
-      return dayTsList.map((ts) => {
-        const row: PivotedRow = {
-          day: new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
-          dayTs: ts,
-        };
-        const devMap = dayDeviceMap.get(ts);
-        deviceTypes.forEach((dt) => {
-          row[dt] = devMap?.get(dt)?.[errorKey] ?? 0;
-        });
-        return row;
-      });
-    }
-
     return {
       jsRows: buildPctRows("js"),
       reqRows: buildPctRows("req"),
-      jsCountRows: buildCountRows("js"),
-      reqCountRows: buildCountRows("req"),
       deviceTypes,
     };
   }, [data, fillRange]);
+
+  const { errorCountRows, errorTypes } = useMemo(() => {
+    if (!errorCounts?.length) return { errorCountRows: [], errorTypes: [] };
+
+    const dayTypeMap = new Map<number, Map<string, number>>();
+    const etSet = new Set<string>();
+
+    errorCounts.forEach((d) => {
+      const ts = typeof d.day === "number" ? d.day : d.day ? new Date(d.day as string).getTime() : null;
+      if (ts === null) return;
+      const aligned = new Date(ts);
+      aligned.setUTCHours(0, 0, 0, 0);
+      const alignedTs = aligned.getTime();
+      const et = d.errorType ?? "unknown";
+      etSet.add(et);
+      if (!dayTypeMap.has(alignedTs)) dayTypeMap.set(alignedTs, new Map());
+      const typeMap = dayTypeMap.get(alignedTs)!;
+      typeMap.set(et, (typeMap.get(et) ?? 0) + (d.count ?? 0));
+    });
+
+    const errorTypes = Array.from(etSet).sort();
+
+    const dayTsList = fillRange
+      ? allDaysInRange(fillRange[0], fillRange[1])
+      : Array.from(dayTypeMap.keys()).sort((a, b) => a - b);
+
+    const errorCountRows: PivotedRow[] = dayTsList.map((ts) => {
+      const row: PivotedRow = {
+        day: new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+        dayTs: ts,
+      };
+      const typeMap = dayTypeMap.get(ts);
+      errorTypes.forEach((et) => { row[et] = typeMap?.get(et) ?? 0; });
+      return row;
+    });
+
+    return { errorCountRows, errorTypes };
+  }, [errorCounts, fillRange]);
 
   if (jsRows.length === 0) return null;
 
@@ -209,7 +247,7 @@ export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
     );
   };
 
-  const barChart = (rows: PivotedRow[], title: string) => (
+  const barChart = (rows: PivotedRow[], title: string, series: string[], colorFn: (key: string, i: number) => string) => (
     <div>
       <div style={{ fontSize: 11, color: TOKEN.textSubtle, fontFamily: FONT, marginBottom: 6, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
         {title}
@@ -227,14 +265,14 @@ export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
           />
           <Tooltip content={<CountTooltip />} wrapperStyle={{ zIndex: 9999 }} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
           <Legend iconType="square" iconSize={9} wrapperStyle={{ fontSize: 11, paddingTop: 6, fontFamily: FONT, color: "rgba(255,255,255,0.6)" }} />
-          {deviceTypes.map((dt, i) => (
+          {series.map((key, i) => (
             <Bar
-              key={dt}
-              dataKey={dt}
-              name={dt.charAt(0).toUpperCase() + dt.slice(1)}
-              fill={DEVICE_COLORS[dt] ?? "#888EA8"}
-              stackId="device"
-              radius={i === deviceTypes.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+              key={key}
+              dataKey={key}
+              name={key}
+              fill={colorFn(key, i)}
+              stackId="stack"
+              radius={i === series.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
               isAnimationActive={false}
             />
           ))}
@@ -246,9 +284,13 @@ export const DailyErrorChart: React.FC<Props> = ({ data, fillRange }) => {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {lineChart(jsRows, "JS Error Rate (% of sessions)")}
-      {barChart(jsCountRows, "JS Error Sessions (daily)")}
       {lineChart(reqRows, "Request Error Rate (% of sessions)")}
-      {barChart(reqCountRows, "Request Error Sessions (daily)")}
+      {errorCountRows.length > 0 && barChart(
+        errorCountRows,
+        "Error Count (daily)",
+        errorTypes,
+        (key, i) => ERROR_TYPE_COLORS[key] ?? ERROR_TYPE_COLOR_FALLBACKS[i % ERROR_TYPE_COLOR_FALLBACKS.length],
+      )}
     </div>
   );
 };
