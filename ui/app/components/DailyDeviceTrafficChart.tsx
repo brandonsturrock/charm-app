@@ -7,6 +7,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceArea,
 } from "recharts";
 import { Flex } from "@dynatrace/strato-components/layouts";
 import { Text } from "@dynatrace/strato-components/typography";
@@ -171,6 +172,20 @@ export const DailyDeviceTrafficChart: React.FC<Props> = ({ data, fillRange }) =>
 
   const tickInterval = Math.max(1, Math.ceil(pivoted.length / 7)) - 1;
 
+  const RETENTION_MS = 35 * 24 * 60 * 60 * 1000;
+  const retentionCutoff = Date.now() - RETENTION_MS;
+  const staleRows = pivoted.filter(r => r.dayTs < retentionCutoff);
+  const retentionZone = staleRows.length > 0 ? (
+    <ReferenceArea
+      x1={pivoted[0].day}
+      x2={staleRows[staleRows.length - 1].day}
+      fill="rgba(255,255,255,0.04)"
+      stroke="rgba(255,255,255,0.12)"
+      strokeDasharray="3 3"
+      label={{ value: "No data", position: "insideTopLeft", fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
+    />
+  ) : null;
+
   return (
     <Flex width="100%" alignItems="stretch" style={{ userSelect: "none" }} className="dt-chart-nofocus">
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -192,6 +207,7 @@ export const DailyDeviceTrafficChart: React.FC<Props> = ({ data, fillRange }) =>
               width={40}
             />
             <Tooltip content={<ChartTooltip />} cursor={{ fill: TOKEN.containerSubdued }} wrapperStyle={{ zIndex: 9999 }} />
+            {retentionZone}
             {deviceTypes.map((dt, i) => (
               <Bar key={dt} dataKey={dt} stackId="device" fill={deviceColor(dt)} radius={i === deviceTypes.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
             ))}

@@ -10,6 +10,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  ReferenceArea,
 } from "recharts";
 
 export interface DailyErrorPoint {
@@ -189,7 +190,22 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
   const tickInterval = Math.max(1, Math.ceil(jsRows.length / 7)) - 1;
   const axisStyle = { fontSize: 11, fill: TOKEN.textSubtle, fontFamily: FONT };
 
-  const lineChart = (rows: PivotedRow[], title: string) => (
+  const RETENTION_MS = 35 * 24 * 60 * 60 * 1000;
+  const retentionCutoff = Date.now() - RETENTION_MS;
+
+  const lineChart = (rows: PivotedRow[], title: string) => {
+    const staleRows = rows.filter(r => r.dayTs < retentionCutoff);
+    const retentionZone = staleRows.length > 0 ? (
+      <ReferenceArea
+        x1={rows[0].day}
+        x2={staleRows[staleRows.length - 1].day}
+        fill="rgba(255,255,255,0.04)"
+        stroke="rgba(255,255,255,0.12)"
+        strokeDasharray="3 3"
+        label={{ value: "No data", position: "insideTopLeft", fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
+      />
+    ) : null;
+    return (
     <div>
       <div style={{ fontSize: 11, color: TOKEN.textSubtle, fontFamily: FONT, marginBottom: 6, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
         {title}
@@ -207,6 +223,7 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
           />
           <Tooltip content={<PctTooltip />} wrapperStyle={{ zIndex: 9999 }} />
           <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 6, fontFamily: FONT, color: "rgba(255,255,255,0.6)" }} />
+          {retentionZone}
           {deviceTypes.map((dt) => (
             <Line
               key={dt}
@@ -224,7 +241,8 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
         </LineChart>
       </ResponsiveContainer>
     </div>
-  );
+    );
+  };
 
   const CountTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -247,7 +265,19 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
     );
   };
 
-  const barChart = (rows: PivotedRow[], title: string, series: string[], colorFn: (key: string, i: number) => string) => (
+  const barChart = (rows: PivotedRow[], title: string, series: string[], colorFn: (key: string, i: number) => string) => {
+    const staleRows = rows.filter(r => r.dayTs < retentionCutoff);
+    const retentionZone = staleRows.length > 0 ? (
+      <ReferenceArea
+        x1={rows[0].day}
+        x2={staleRows[staleRows.length - 1].day}
+        fill="rgba(255,255,255,0.04)"
+        stroke="rgba(255,255,255,0.12)"
+        strokeDasharray="3 3"
+        label={{ value: "No data", position: "insideTopLeft", fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
+      />
+    ) : null;
+    return (
     <div>
       <div style={{ fontSize: 11, color: TOKEN.textSubtle, fontFamily: FONT, marginBottom: 6, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
         {title}
@@ -265,6 +295,7 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
           />
           <Tooltip content={<CountTooltip />} wrapperStyle={{ zIndex: 9999 }} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
           <Legend iconType="square" iconSize={9} wrapperStyle={{ fontSize: 11, paddingTop: 6, fontFamily: FONT, color: "rgba(255,255,255,0.6)" }} />
+          {retentionZone}
           {series.map((key, i) => (
             <Bar
               key={key}
@@ -279,7 +310,8 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
         </BarChart>
       </ResponsiveContainer>
     </div>
-  );
+    );
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>

@@ -9,6 +9,7 @@ import {
   Legend,
   ResponsiveContainer,
   ReferenceLine,
+  ReferenceArea,
 } from "recharts";
 
 export interface CwvWeeklyDataPoint {
@@ -78,6 +79,21 @@ export const CwvTrendChart: React.FC<Props> = ({ data, pdfWidth, pdfHeight, font
   const axisLabelSz = Math.round(10 * fontScale);
   const legendSz = Math.round(11 * fontScale);
 
+  const RETENTION_MS = 35 * 24 * 60 * 60 * 1000;
+  const retentionCutoff = Date.now() - RETENTION_MS;
+  const staleWeeks = sorted.filter(d => d.weekTs < retentionCutoff);
+  const retentionZone = staleWeeks.length > 0 ? (
+    <ReferenceArea
+      yAxisId="ms"
+      x1={sorted[0].week}
+      x2={staleWeeks[staleWeeks.length - 1].week}
+      fill="rgba(255,255,255,0.04)"
+      stroke="rgba(255,255,255,0.12)"
+      strokeDasharray="3 3"
+      label={{ value: "No data", position: "insideTopLeft", fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
+    />
+  ) : null;
+
   return (
     <ResponsiveContainer width={pdfWidth ?? "100%"} height={pdfHeight ?? "100%"}>
       <LineChart data={sorted} margin={{ top: 8, right: 48, bottom: 4, left: 8 }}>
@@ -122,6 +138,8 @@ export const CwvTrendChart: React.FC<Props> = ({ data, pdfWidth, pdfHeight, font
           iconSize={7}
           wrapperStyle={{ fontSize: legendSz, paddingTop: 8, fontFamily: "'DT Flow', sans-serif", color: "rgba(255,255,255,0.6)" }}
         />
+
+        {retentionZone}
 
         {/* Good/poor reference lines on the ms axis */}
         <ReferenceLine yAxisId="ms" y={THRESHOLDS.lcp.good} stroke={COLORS.lcp} strokeDasharray="4 4" strokeOpacity={0.25} />
