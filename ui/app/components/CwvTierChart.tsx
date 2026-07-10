@@ -120,13 +120,14 @@ export const CwvTierChart: React.FC<Props> = ({ data }) => {
   }, [data]);
 
   return (
-    <div>
-      <ResponsiveContainer width="100%" height={160}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ flex: 1, minHeight: 220 }}>
+      <ResponsiveContainer width="100%" height="100%">
         <BarChart
           layout="vertical"
           data={rows}
-          margin={{ top: 4, right: 16, left: 0, bottom: 4 }}
-          barSize={28}
+          margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+          barSize={44}
         >
           <CartesianGrid horizontal={false} stroke="rgba(255,255,255,0.06)" />
           <XAxis
@@ -172,6 +173,7 @@ export const CwvTierChart: React.FC<Props> = ({ data }) => {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      </div>
       <div style={{ display: "flex", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
         {[
           { color: TIER_COLORS.good, label: "Good" },

@@ -162,7 +162,8 @@ const buildCmCwvDistributionQuery = (fn: string) => `fetch user.events, from: (n
 | filter characteristics.classifier == "page_summary"
 | fieldsAdd
     lcp_ms = toLong(web_vitals.largest_contentful_paint) / 1000000,
-    inp_ms = toLong(web_vitals.interaction_to_next_paint) / 1000000
+    inp_ms = toLong(web_vitals.interaction_to_next_paint) / 1000000,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift) / 10000
 | summarize
     lcp_b0  = countIf(lcp_ms < 1000),
     lcp_b1  = countIf(lcp_ms >= 1000  and lcp_ms < 2000),
@@ -176,7 +177,6 @@ const buildCmCwvDistributionQuery = (fn: string) => `fetch user.events, from: (n
     lcp_b9  = countIf(lcp_ms >= 9000  and lcp_ms < 10000),
     lcp_b10 = countIf(lcp_ms >= 10000),
     lcp_total = countIf(isNotNull(lcp_ms)),
-    lcp_p50 = percentile(lcp_ms, 50),
     inp_b0  = countIf(inp_ms < 1000),
     inp_b1  = countIf(inp_ms >= 1000  and inp_ms < 2000),
     inp_b2  = countIf(inp_ms >= 2000  and inp_ms < 3000),
@@ -189,7 +189,18 @@ const buildCmCwvDistributionQuery = (fn: string) => `fetch user.events, from: (n
     inp_b9  = countIf(inp_ms >= 9000  and inp_ms < 10000),
     inp_b10 = countIf(inp_ms >= 10000),
     inp_total = countIf(isNotNull(inp_ms)),
-    inp_p50 = percentile(inp_ms, 50)`;
+    cls_b0  = countIf(cls_val < 0.1),
+    cls_b1  = countIf(cls_val >= 0.1 and cls_val < 0.2),
+    cls_b2  = countIf(cls_val >= 0.2 and cls_val < 0.3),
+    cls_b3  = countIf(cls_val >= 0.3 and cls_val < 0.4),
+    cls_b4  = countIf(cls_val >= 0.4 and cls_val < 0.5),
+    cls_b5  = countIf(cls_val >= 0.5 and cls_val < 0.6),
+    cls_b6  = countIf(cls_val >= 0.6 and cls_val < 0.7),
+    cls_b7  = countIf(cls_val >= 0.7 and cls_val < 0.8),
+    cls_b8  = countIf(cls_val >= 0.8 and cls_val < 0.9),
+    cls_b9  = countIf(cls_val >= 0.9 and cls_val < 1.0),
+    cls_b10 = countIf(cls_val >= 1.0),
+    cls_total = countIf(isNotNull(cls_val))`;
 
 const buildCmTopExceptionsQuery = (fn: string) => `fetch user.events, from: (now()-1M)@M, to: now()@M
 | filter frontend.name == "${dqlEscape(fn)}"
@@ -433,6 +444,20 @@ const CWV_POOR = "#E8345A";
 function cwvLcpColor(ms: number) { return ms < 2500 ? CWV_GOOD : ms < 4000 ? CWV_WARN : CWV_POOR; }
 function cwvInpColor(ms: number) { return ms < 200 ? CWV_GOOD : ms < 500 ? CWV_WARN : CWV_POOR; }
 function cwvClsColor(val: number) { return val < 0.1 ? CWV_GOOD : val < 0.25 ? CWV_WARN : CWV_POOR; }
+
+const SectionHeader: React.FC<{ label: string; color: string }> = ({ label, color }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+    <div style={{ width: 3, height: 16, borderRadius: 2, background: color, flexShrink: 0 }} />
+    <span style={{
+      fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const,
+      letterSpacing: "0.1em", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)",
+      fontFamily: "'DT Flow', 'Helvetica Neue', Arial, sans-serif",
+    }}>
+      {label}
+    </span>
+    <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+  </div>
+);
 
 const CmDeviceComparisonTable: React.FC<{ records: CmDeviceCompareRecord[] }> = ({ records }) => {
   const devices = ["mobile", "desktop"];
@@ -1113,16 +1138,20 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
             </Surface>
           ) : (
             <Flex flexDirection="column" gap={16}>
-              {/* KPI Row */}
-              <Flex gap={16}>
+
+              {/* KPI summary row — all metrics at a glance */}
+              <Flex gap={16} alignItems="stretch">
                 <KpiCard label="Sessions" value={cmTotalSessions.toLocaleString()} change={null} color={COLORS.sessions} />
                 <KpiCard label="Page Loads" value={cmTotalPageLoads.toLocaleString()} change={null} color={COLORS.pageLoads} />
-                <KpiCard label="LCP p75" value={formatLcp(cmOverallLcp)} change={null} color={COLORS.lcp} lowerIsBetter />
-                <KpiCard label="INP p75" value={formatLcp(cmOverallInp)} change={null} color={COLORS.inp} lowerIsBetter />
-                <KpiCard label="CLS p75" value={(cmOverallCls / 10000).toFixed(3)} change={null} color={COLORS.cls} lowerIsBetter />
+                <div style={{ width: 1, alignSelf: "stretch", background: "var(--dt-colors-border-neutral-default, rgba(255,255,255,0.1))", margin: "0 4px" }} />
+                <KpiCard label="LCP p75" value={formatLcp(cmOverallLcp)} change={null} color={cwvLcpColor(cmOverallLcp)} lowerIsBetter />
+                <KpiCard label="INP p75" value={formatLcp(cmOverallInp)} change={null} color={cwvInpColor(cmOverallInp)} lowerIsBetter />
+                <KpiCard label="CLS p75" value={(cmOverallCls / 10000).toFixed(3)} change={null} color={cwvClsColor(cmOverallCls / 10000)} lowerIsBetter />
               </Flex>
 
-              {/* Daily Traffic + Device Comparison */}
+              {/* ── TRAFFIC ── */}
+              <SectionHeader label="Traffic" color={COLORS.sessions} />
+
               <Flex gap={16} alignItems="stretch">
                 <Surface elevation="raised" padding={24} style={{ flex: 2, minWidth: 0 }}>
                   <Heading level={5} style={{ marginBottom: 16, marginTop: 0 }}>Daily Sessions by Device</Heading>
@@ -1138,51 +1167,59 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                 </Surface>
               </Flex>
 
-              {/* CWV Tier Breakdown */}
-              {cmCwvTierRecord && (
-                <Surface elevation="raised" padding={24}>
-                  <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Core Web Vitals — Experience Distribution</Heading>
-                  <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
-                    % of page loads in each tier (last month, from user events)
-                  </Text>
-                  <CwvTierChart data={cmCwvTierRecord} />
-                </Surface>
-              )}
+              {/* ── CORE WEB VITALS ── */}
+              <SectionHeader label="Core Web Vitals" color={COLORS.lcp} />
 
-              {/* CWV Load Time Distribution */}
-              <Surface elevation="raised" padding={24}>
-                <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Core Web Vitals — Load Time Distribution</Heading>
-                <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
-                  % of page loads in each time bucket (LCP and INP, last month)
-                </Text>
-                {cmCwvDistributionLoading ? (
-                  <Flex justifyContent="center" alignItems="center" style={{ minHeight: 120 }}><ProgressCircle /></Flex>
-                ) : cmCwvDistributionRecord ? (
-                  <CwvDistributionChart data={cmCwvDistributionRecord} />
-                ) : (
-                  <Text>No distribution data available.</Text>
+              <Flex gap={16} alignItems="stretch">
+                {cmCwvTierRecord && (
+                  <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                    <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Experience Distribution</Heading>
+                    <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
+                      % of page loads rated Good / Needs Improvement / Poor
+                    </Text>
+                    <div style={{ flex: 1 }}>
+                      <CwvTierChart data={cmCwvTierRecord} />
+                    </div>
+                  </Surface>
                 )}
-              </Surface>
+                <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
+                  <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Load Time Distribution</Heading>
+                  <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
+                    % of page loads per 1s time bucket (LCP and INP)
+                  </Text>
+                  {cmCwvDistributionLoading ? (
+                    <Flex justifyContent="center" alignItems="center" style={{ minHeight: 120 }}><ProgressCircle /></Flex>
+                  ) : cmCwvDistributionRecord ? (
+                    <CwvDistributionChart
+                    data={cmCwvDistributionRecord}
+                    lcpP75={cmOverallLcp}
+                    inpP75={cmOverallInp}
+                    clsP75={cmOverallCls / 10000}
+                  />
+                  ) : (
+                    <Text>No distribution data available.</Text>
+                  )}
+                </Surface>
+              </Flex>
 
-              {/* Daily CWV Trend — three separate charts */}
               {cmCwvLoading ? (
                 <Flex justifyContent="center" alignItems="center" style={{ minHeight: 120 }}><ProgressCircle /></Flex>
               ) : cmDailyCwvChartData.length > 0 ? (
                 <Flex gap={16} alignItems="stretch">
                   <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
-                    <Heading level={5} style={{ marginBottom: 16, marginTop: 0 }}>LCP p75 (daily)</Heading>
+                    <Heading level={5} style={{ marginBottom: 16, marginTop: 0 }}>LCP — Daily Trend</Heading>
                     <div style={{ height: 220 }}>
                       <CwvSingleMetricChart data={cmDailyCwvChartData} metric="lcp" fillRange={lastMonthRange} />
                     </div>
                   </Surface>
                   <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
-                    <Heading level={5} style={{ marginBottom: 16, marginTop: 0 }}>INP p75 (daily)</Heading>
+                    <Heading level={5} style={{ marginBottom: 16, marginTop: 0 }}>INP — Daily Trend</Heading>
                     <div style={{ height: 220 }}>
                       <CwvSingleMetricChart data={cmDailyCwvChartData} metric="inp" fillRange={lastMonthRange} />
                     </div>
                   </Surface>
                   <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
-                    <Heading level={5} style={{ marginBottom: 16, marginTop: 0 }}>CLS p75 (daily)</Heading>
+                    <Heading level={5} style={{ marginBottom: 16, marginTop: 0 }}>CLS — Daily Trend</Heading>
                     <div style={{ height: 220 }}>
                       <CwvSingleMetricChart data={cmDailyCwvChartData} metric="cls" fillRange={lastMonthRange} />
                     </div>
@@ -1190,11 +1227,13 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                 </Flex>
               ) : null}
 
-              {/* Error Sessions */}
+              {/* ── ERRORS ── */}
+              <SectionHeader label="Errors" color={CWV_POOR} />
+
               <Surface elevation="raised" padding={24}>
-                <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Sessions with Errors (daily)</Heading>
+                <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Error Rates & Counts</Heading>
                 <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
-                  Sessions containing at least one JS exception or failed HTTP request (from user events)
+                  Sessions containing at least one JS exception or failed HTTP request (daily)
                 </Text>
                 {cmErrorsLoading ? (
                   <Flex justifyContent="center" alignItems="center" style={{ minHeight: 120 }}><ProgressCircle /></Flex>
@@ -1205,7 +1244,6 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                 )}
               </Surface>
 
-              {/* Top Exceptions + Top Request Errors */}
               <Flex gap={16} alignItems="flex-start">
                 <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
                   <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Top Exceptions</Heading>
