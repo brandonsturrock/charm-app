@@ -662,8 +662,8 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
 
   const lastMonthRange = useMemo((): [number, number] => {
     const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
-    const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999).getTime();
+    const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
+    const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0);
     return [start, end];
   }, []);
 
