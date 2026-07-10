@@ -7,11 +7,11 @@ interface KpiCardProps {
   value: string;
   change: number | null;
   color: string;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   lowerIsBetter?: boolean;
 }
 
-export const KpiCard: React.FC<KpiCardProps> = ({ label, value, change, color, icon, lowerIsBetter = false }) => {
+export const KpiCard: React.FC<KpiCardProps> = ({ label, value, change, color, lowerIsBetter = false }) => {
   const changeText = change === null
     ? null
     : `${change >= 0 ? "+" : ""}${change.toFixed(1)}% vs prior month`;
@@ -45,7 +45,6 @@ export const KpiCard: React.FC<KpiCardProps> = ({ label, value, change, color, i
       }}
     >
       <Flex alignItems="center" gap={6}>
-        <span style={{ color, fontSize: 14, lineHeight: 1 }}>{icon}</span>
         <Text
           style={{
             fontSize: 11,

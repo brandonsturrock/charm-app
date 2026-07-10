@@ -1,10 +1,6 @@
-import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { DavisAIIcon } from "@dynatrace/strato-icons";
 import { httpClient } from "@dynatrace-sdk/http-client";
-
-export interface AnalystNotesPanelHandle {
-  getValue: () => string;
-}
 
 export interface TrendMonthPoint {
   month: string;
@@ -39,8 +35,20 @@ export interface AnalystNotesContext {
   browserTrend: BrowserMonthPoint[];
 }
 
+export interface CurrentMonthAnalystContext {
+  type: 'last-month';
+  frontendName: string;
+  dailyByDevice: Array<{ day: string; deviceType: string; sessions: number }>;
+  dailyCwv: Array<{ day: string; lcpMs: number; inpMs: number; cls: number }>;
+  dailyErrors: Array<{ day: string; jsErrorSessions: number; reqErrorSessions: number }>;
+  deviceCompare: Array<{ deviceType: string; sessions: number; pageLoads: number; lcpMs: number; inpMs: number; cls: number }>;
+}
+
 interface AnalystNotesPanelProps {
-  context?: AnalystNotesContext;
+  value: string;
+  onChange: (v: string) => void;
+  onGeneratingChange?: (v: boolean) => void;
+  context?: AnalystNotesContext | CurrentMonthAnalystContext;
 }
 
 const COLLAPSED_HEIGHT = 0;
@@ -49,6 +57,10 @@ const TAB_HEIGHT = 36;
 
 function fmtMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms.toFixed(0)}ms`;
+}
+
+function isCmContext(ctx: any): ctx is CurrentMonthAnalystContext {
+  return ctx?.type === 'last-month';
 }
 
 function buildSupplementary(context: AnalystNotesContext): string {
@@ -71,12 +83,10 @@ function buildSupplementary(context: AnalystNotesContext): string {
     lines.push(`${r.month} | ${fmtMs(r.lcpMs)} | ${fmtMs(r.inpMs)} | ${r.cls.toFixed(3)}`);
   }
 
-  // Aggregate browser data by browser+device for the most recent month
   if (browserTrend.length > 0) {
     const months = [...new Set(browserTrend.map(r => r.month))].sort();
     const latestMonth = months[months.length - 1];
     const latestRows = browserTrend.filter(r => r.month === latestMonth);
-    // Sort by visits desc, top 8
     const top = [...latestRows].sort((a, b) => b.visits - a.visits).slice(0, 8);
     lines.push(`\n--- Browser Performance — ${latestMonth} (top segments by visits) ---`);
     lines.push("Browser | Device | Visits | LCP p75 | INP p75 | CLS p75");
@@ -88,18 +98,68 @@ function buildSupplementary(context: AnalystNotesContext): string {
   return lines.join("\n");
 }
 
-async function generateNotes(context: AnalystNotesContext): Promise<string> {
-  const { frontendName, trafficTrend } = context;
-  const latestMonth = trafficTrend[trafficTrend.length - 1]?.month ?? "";
+function buildCmSupplementary(context: CurrentMonthAnalystContext): string {
+  const { frontendName, dailyByDevice, dailyCwv, dailyErrors, deviceCompare } = context;
+  const lines: string[] = [];
 
-  const dataBlock = buildSupplementary(context);
+  lines.push(`Frontend: ${frontendName} — Current Month (MTD)`);
 
-  const payload = {
-    text: `You are a web performance analyst writing an internal monthly review for ${frontendName}. Below is the real metric data for the last 6 months (ending ${latestMonth}). Analyze ONLY these numbers — do not provide general Dynatrace guidance or product help. Identify month-over-month changes, flag Core Web Vitals threshold violations (LCP good <2.5s/poor >4s, INP good <200ms/poor >500ms, CLS good <0.1/poor >0.25), and note sustained trends.
+  const byDay = new Map<string, number>();
+  dailyByDevice.forEach(r => byDay.set(r.day, (byDay.get(r.day) ?? 0) + r.sessions));
+  const dayKeys = Array.from(byDay.keys()).sort();
+
+  lines.push(`\n--- Daily Sessions (MTD, ${dayKeys.length} days) ---`);
+  lines.push("Day | Sessions");
+  dayKeys.forEach(day => lines.push(`${day} | ${(byDay.get(day) ?? 0).toLocaleString()}`));
+
+  if (dailyCwv.length > 0) {
+    lines.push("\n--- Daily Core Web Vitals p75 ---");
+    lines.push("Thresholds: LCP good <2.5s / poor >4s | INP good <200ms / poor >500ms | CLS good <0.1 / poor >0.25");
+    lines.push("Day | LCP p75 | INP p75 | CLS p75");
+    dailyCwv.forEach(r => lines.push(`${r.day} | ${fmtMs(r.lcpMs)} | ${fmtMs(r.inpMs)} | ${r.cls.toFixed(3)}`));
+  }
+
+  if (dailyErrors.length > 0) {
+    lines.push("\n--- Daily Error Sessions ---");
+    lines.push("Day | JS Error Sessions | Request Error Sessions");
+    dailyErrors.forEach(r => lines.push(`${r.day} | ${r.jsErrorSessions.toLocaleString()} | ${r.reqErrorSessions.toLocaleString()}`));
+  }
+
+  if (deviceCompare.length > 0) {
+    lines.push("\n--- Device Comparison (MTD) ---");
+    lines.push("Thresholds: LCP good <2.5s / poor >4s | INP good <200ms / poor >500ms | CLS good <0.1 / poor >0.25");
+    lines.push("Device | Sessions | Page Loads | LCP p75 | INP p75 | CLS p75");
+    deviceCompare.forEach(r => lines.push(
+      `${r.deviceType} | ${r.sessions.toLocaleString()} | ${r.pageLoads.toLocaleString()} | ${fmtMs(r.lcpMs)} | ${fmtMs(r.inpMs)} | ${r.cls.toFixed(3)}`
+    ));
+  }
+
+  return lines.join("\n");
+}
+
+async function generateNotes(context: AnalystNotesContext | CurrentMonthAnalystContext): Promise<string> {
+  let promptText: string;
+
+  if (isCmContext(context)) {
+    const dataBlock = buildCmSupplementary(context);
+    promptText = `You are a web performance analyst writing an internal last month review for ${context.frontendName}. Below is the real metric data for last month. Analyze ONLY these numbers — do not provide general Dynatrace guidance or product help. Identify day-over-day trends, flag Core Web Vitals threshold violations (LCP good <2.5s/poor >4s, INP good <200ms/poor >500ms, CLS good <0.1/poor >0.25), note error session spikes, and compare mobile vs desktop performance.
 
 ${dataBlock}
 
-Respond ONLY in markdown bullet points (- item). One short sentence per bullet. Include 3-4 bullet points under each heading ONLY IF there are that many notable findings — use fewer bullets if there is genuinely less to say. Group under three headings: ## Traffic, ## Core Web Vitals, ## Browser & Device. No preamble, no conclusion, no general advice.`,
+Respond ONLY in markdown bullet points (- item). One short sentence per bullet. Include 3-4 bullet points under each heading ONLY IF there are that many notable findings — use fewer bullets if there is genuinely less to say. Group under three headings: ## Traffic, ## Core Web Vitals, ## Error Rates. No preamble, no conclusion, no general advice.`;
+  } else {
+    const { frontendName, trafficTrend } = context;
+    const latestMonth = trafficTrend[trafficTrend.length - 1]?.month ?? "";
+    const dataBlock = buildSupplementary(context);
+    promptText = `You are a web performance analyst writing an internal monthly review for ${frontendName}. Below is the real metric data for the last 6 months (ending ${latestMonth}). Analyze ONLY these numbers — do not provide general Dynatrace guidance or product help. Identify month-over-month changes, flag Core Web Vitals threshold violations (LCP good <2.5s/poor >4s, INP good <200ms/poor >500ms, CLS good <0.1/poor >0.25), and note sustained trends.
+
+${dataBlock}
+
+Respond ONLY in markdown bullet points (- item). One short sentence per bullet. Include 3-4 bullet points under each heading ONLY IF there are that many notable findings — use fewer bullets if there is genuinely less to say. Group under three headings: ## Traffic, ## Core Web Vitals, ## Browser & Device. No preamble, no conclusion, no general advice.`;
+  }
+
+  const payload = {
+    text: promptText,
     "document-retrieval": "disabled",
   };
 
@@ -115,230 +175,213 @@ Respond ONLY in markdown bullet points (- item). One short sentence per bullet. 
   }
 
   const data = await response.body();
-  // Response shape: { message: { content: string } } or { content: string } — handle both
   const content: string = data?.text ?? JSON.stringify(data);
   return content;
 }
 
-export const AnalystNotesPanel = forwardRef<AnalystNotesPanelHandle, AnalystNotesPanelProps>(
-  ({ context }, ref) => {
-    const [value, setValue] = useState(`## Traffic
-- Sessions increased significantly from Jan (68,873) to Jun (226,851), with a peak in Feb (234,689).
-- User Actions spiked in Jun (2,199), more than doubling the previous high in Mar (1,034).
-- Page Loads showed steady growth, with a notable jump in Jun (1,126) from May (710).
+export const AnalystNotesPanel: React.FC<AnalystNotesPanelProps> = ({ value, onChange, onGeneratingChange, context }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-## Core Web Vitals
-- **LCP** remained consistently good (<2.5s) across all months, improving slightly from Jan (302ms) to Jun (172ms).
-- **INP** consistently violated the poor threshold (>500ms), with minimal improvement from Jan (4.99s) to Jun (4.91s).
-- **CLS** stayed within the good threshold (<0.1) throughout, with no violations.
+  useEffect(() => {
+    if (expanded) {
+      setTimeout(() => textareaRef.current?.focus(), 180);
+    }
+  }, [expanded]);
 
-## Browser & Device
-- Opera had the highest visits in May (55,536) with an INP of 4.93s, slightly better than Chrome (5.13s).
-- Chrome showed the worst INP performance in May (5.13s) among top browsers.
-- All browsers maintained good LCP (<2.5s) and CLS (<0.1) in May.`);
-    const [expanded, setExpanded] = useState(false);
-    const [generating, setGenerating] = useState(false);
-    const [generateError, setGenerateError] = useState<string | null>(null);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hasContent = value.trim().length > 0;
+  const canGenerate = !!context;
 
-    useImperativeHandle(ref, () => ({ getValue: () => value }), [value]);
+  const handleGenerate = async () => {
+    if (!context || generating) return;
+    setGenerating(true);
+    onGeneratingChange?.(true);
+    setGenerateError(null);
+    try {
+      const result = await generateNotes(context);
+      onChange(result);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setGenerating(false);
+      onGeneratingChange?.(false);
+    }
+  };
 
-    useEffect(() => {
-      if (expanded) {
-        setTimeout(() => textareaRef.current?.focus(), 180);
-      }
-    }, [expanded]);
-
-    const hasContent = value.trim().length > 0;
-    const canGenerate = !!context;
-
-    const handleGenerate = async () => {
-      if (!context || generating) return;
-      setGenerating(true);
-      setGenerateError(null);
-      try {
-        const result = await generateNotes(context);
-        setValue(result);
-      } catch (err) {
-        setGenerateError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setGenerating(false);
-      }
-    };
-
-    return (
+  return (
+    <div style={{
+      position: "fixed",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      zIndex: 200,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      pointerEvents: "none",
+    }}>
+      {/* Floating sheet */}
       <div style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 200,
+        width: "min(860px, 92vw)",
+        pointerEvents: "all",
+        borderRadius: "12px 12px 0 0",
+        background: "var(--dt-colors-background-surface-default, #1c1e2e)",
+        border: "1px solid var(--dt-colors-border-neutral-default, rgba(255,255,255,0.1))",
+        borderBottom: "none",
+        boxShadow: "0 -8px 32px rgba(0,0,0,0.45)",
+        overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        pointerEvents: "none",
       }}>
-        {/* Floating sheet */}
-        <div style={{
-          width: "min(860px, 92vw)",
-          pointerEvents: "all",
-          borderRadius: "12px 12px 0 0",
-          background: "var(--dt-colors-background-surface-default, #1c1e2e)",
-          border: "1px solid var(--dt-colors-border-neutral-default, rgba(255,255,255,0.1))",
-          borderBottom: "none",
-          boxShadow: "0 -8px 32px rgba(0,0,0,0.45)",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}>
-          {/* Tab / handle — always visible */}
-          <button
-            onClick={() => setExpanded((prev) => !prev)}
-            style={{
-              all: "unset",
-              cursor: "pointer",
-              height: TAB_HEIGHT,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "0 16px",
-              userSelect: "none",
-              borderBottom: expanded
-                ? "1px solid var(--dt-colors-border-neutral-default, rgba(255,255,255,0.1))"
-                : "none",
-              transition: "background 0.15s",
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, opacity: 0.35 }}>
-                <div style={{ width: 24, height: 2, borderRadius: 1, background: "currentColor" }} />
-                <div style={{ width: 24, height: 2, borderRadius: 1, background: "currentColor" }} />
-              </div>
+        {/* Tab / handle — always visible */}
+        <button
+          onClick={() => setExpanded((prev) => !prev)}
+          style={{
+            all: "unset",
+            cursor: "pointer",
+            height: TAB_HEIGHT,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 16px",
+            userSelect: "none",
+            borderBottom: expanded
+              ? "1px solid var(--dt-colors-border-neutral-default, rgba(255,255,255,0.1))"
+              : "none",
+            transition: "background 0.15s",
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, opacity: 0.35 }}>
+              <div style={{ width: 24, height: 2, borderRadius: 1, background: "currentColor" }} />
+              <div style={{ width: 24, height: 2, borderRadius: 1, background: "currentColor" }} />
+            </div>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)",
+            }}>
+              Analyst Notes
+            </span>
+            {hasContent && !expanded && (
               <span style={{
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)",
+                fontSize: 10,
+                fontWeight: 600,
+                background: "#1496ff",
+                color: "#fff",
+                borderRadius: 10,
+                padding: "1px 7px",
+                letterSpacing: "0.03em",
               }}>
-                Analyst Notes
+                {value.trim().split("\n").filter(Boolean).length} line{value.trim().split("\n").filter(Boolean).length !== 1 ? "s" : ""}
               </span>
-              {hasContent && !expanded && (
-                <span style={{
-                  fontSize: 10,
-                  fontWeight: 600,
-                  background: "#1496ff",
-                  color: "#fff",
-                  borderRadius: 10,
-                  padding: "1px 7px",
-                  letterSpacing: "0.03em",
-                }}>
-                  {value.trim().split("\n").filter(Boolean).length} line{value.trim().split("\n").filter(Boolean).length !== 1 ? "s" : ""}
-                </span>
-              )}
-              {!hasContent && !expanded && (
-                <span style={{ fontSize: 11, color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", opacity: 0.5 }}>
-                  — click to add notes for the PDF
-                </span>
-              )}
-            </div>
+            )}
+            {!hasContent && !expanded && (
+              <span style={{ fontSize: 11, color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", opacity: 0.5 }}>
+                — click to add notes for the PDF
+              </span>
+            )}
+          </div>
 
-            <svg
-              width="14" height="14" viewBox="0 0 14 14" fill="none"
-              style={{
-                transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
-                transition: "transform 0.2s ease",
-                opacity: 0.5,
-              }}
-            >
-              <path d="M2 5l5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          <svg
+            width="14" height="14" viewBox="0 0 14 14" fill="none"
+            style={{
+              transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 0.2s ease",
+              opacity: 0.5,
+            }}
+          >
+            <path d="M2 5l5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
 
-          {/* Expandable body */}
-          <div style={{
-            height: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
-            overflow: "hidden",
-            transition: "height 0.22s cubic-bezier(0.4,0,0.2,1)",
-          }}>
-            <div style={{ padding: "10px 16px 14px", display: "flex", flexDirection: "column", height: EXPANDED_HEIGHT, boxSizing: "border-box" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", opacity: 0.7 }}>
-                  Supports markdown — bullets, <strong>bold</strong>, headers. Included in the PDF export.
-                </p>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: 12 }}>
-                  {generateError && (
-                    <span style={{ fontSize: 11, color: "#f05a5a", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={generateError}>
-                      {generateError}
-                    </span>
+        {/* Expandable body */}
+        <div style={{
+          height: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
+          overflow: "hidden",
+          transition: "height 0.22s cubic-bezier(0.4,0,0.2,1)",
+        }}>
+          <div style={{ padding: "10px 16px 14px", display: "flex", flexDirection: "column", height: EXPANDED_HEIGHT, boxSizing: "border-box" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", opacity: 0.7 }}>
+                Supports markdown — bullets, <strong>bold</strong>, headers. Included in the PDF export.
+              </p>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: 12 }}>
+                {generateError && (
+                  <span style={{ fontSize: 11, color: "#f05a5a", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={generateError}>
+                    {generateError}
+                  </span>
+                )}
+                <button
+                  onClick={handleGenerate}
+                  disabled={!canGenerate || generating}
+                  title={!canGenerate ? "Select a frontend first" : "Generate bullet points using Davis CoPilot"}
+                  style={{
+                    all: "unset",
+                    cursor: canGenerate && !generating ? "pointer" : "not-allowed",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 12px",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: "1px solid",
+                    borderColor: canGenerate && !generating ? "#1496ff" : "rgba(255,255,255,0.15)",
+                    color: canGenerate && !generating ? "#1496ff" : "rgba(255,255,255,0.3)",
+                    background: generating ? "rgba(20,150,255,0.08)" : "transparent",
+                    transition: "background 0.15s, opacity 0.15s",
+                    whiteSpace: "nowrap",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (canGenerate && !generating)
+                      (e.currentTarget as HTMLButtonElement).style.background = "rgba(20,150,255,0.12)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = generating ? "rgba(20,150,255,0.08)" : "transparent";
+                  }}
+                >
+                  {generating ? (
+                    <>
+                      <span style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #1496ff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                      Generating…
+                    </>
+                  ) : (
+                    <><DavisAIIcon size="small" /> Generate with Davis AI</>
                   )}
-                  <button
-                    onClick={handleGenerate}
-                    disabled={!canGenerate || generating}
-                    title={!canGenerate ? "Select a frontend first" : "Generate bullet points using Davis CoPilot"}
-                    style={{
-                      all: "unset",
-                      cursor: canGenerate && !generating ? "pointer" : "not-allowed",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "4px 12px",
-                      borderRadius: 6,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      border: "1px solid",
-                      borderColor: canGenerate && !generating ? "#1496ff" : "rgba(255,255,255,0.15)",
-                      color: canGenerate && !generating ? "#1496ff" : "rgba(255,255,255,0.3)",
-                      background: generating ? "rgba(20,150,255,0.08)" : "transparent",
-                      transition: "background 0.15s, opacity 0.15s",
-                      whiteSpace: "nowrap",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (canGenerate && !generating)
-                        (e.currentTarget as HTMLButtonElement).style.background = "rgba(20,150,255,0.12)";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.background = generating ? "rgba(20,150,255,0.08)" : "transparent";
-                    }}
-                  >
-                    {generating ? (
-                      <>
-                        <span style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #1496ff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
-                        Generating…
-                      </>
-                    ) : (
-                      <><DavisAIIcon size="small" /> Generate with Davis AI</>
-                    )}
-                  </button>
-                </div>
+                </button>
               </div>
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-              <textarea
-                ref={textareaRef}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder={"## Summary\n- Key insight one\n  - Nested detail\n- Key insight two\n\n**Notable trend:** ..."}
-                style={{
-                  flex: 1,
-                  background: "var(--dt-colors-background-surface-sunken, #0f1117)",
-                  color: "var(--dt-colors-text-neutral-default, rgba(255,255,255,0.9))",
-                  border: "1px solid var(--dt-colors-border-neutral-default, rgba(255,255,255,0.1))",
-                  borderRadius: 6,
-                  padding: "10px 12px",
-                  fontFamily: "'DT Flow', 'Helvetica Neue', Arial, sans-serif",
-                  fontSize: "0.875rem",
-                  lineHeight: 1.65,
-                  resize: "none",
-                  outline: "none",
-                  boxSizing: "border-box",
-                }}
-              />
             </div>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <textarea
+              ref={textareaRef}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={"## Summary\n- Key insight one\n  - Nested detail\n- Key insight two\n\n**Notable trend:** ..."}
+              style={{
+                flex: 1,
+                background: "var(--dt-colors-background-surface-sunken, #0f1117)",
+                color: "var(--dt-colors-text-neutral-default, rgba(255,255,255,0.9))",
+                border: "1px solid var(--dt-colors-border-neutral-default, rgba(255,255,255,0.1))",
+                borderRadius: 6,
+                padding: "10px 12px",
+                fontFamily: "'DT Flow', 'Helvetica Neue', Arial, sans-serif",
+                fontSize: "0.875rem",
+                lineHeight: 1.65,
+                resize: "none",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
           </div>
         </div>
       </div>
-    );
-  }
-);
+    </div>
+  );
+};

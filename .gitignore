@@ -31,3 +31,4 @@ DEPLOYMENT_OPTIONS.md
 # ── OS cruft ─────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+.claude/
