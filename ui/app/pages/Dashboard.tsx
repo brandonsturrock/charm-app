@@ -18,12 +18,13 @@ import { CwvTrendChart, type CwvWeeklyDataPoint } from "../components/CwvTrendCh
 import { DeviceDistributionChart, type DeviceMonthPoint } from "../components/DeviceDistributionChart";
 import { PdfLayout, type KpiTile } from "../components/PdfLayout";
 import { PdfLayout3Page, type PdfLayout3PageHandle } from "../components/PdfLayout3Page";
+import { PdfLayoutCm, type PdfLayoutCmHandle } from "../components/PdfLayoutCm";
 import { AnalystNotesPanel, type AnalystNotesContext, type CurrentMonthAnalystContext } from "../components/AnalystNotesPanel";
 import { DailyDeviceTrafficChart, type DailyDevicePoint } from "../components/DailyDeviceTrafficChart";
 import { DailyErrorChart, type DailyErrorPoint, type DailyErrorCountPoint } from "../components/DailyErrorChart";
 import { CwvTierChart, type CwvTierData } from "../components/CwvTierChart";
 import { CwvSingleMetricChart, type CwvDailyDevicePoint } from "../components/CwvSingleMetricChart";
-import { exportDashboardPdf, exportDashboard3PagePdf } from "../utils/pdfExport";
+import { exportDashboardPdf, exportDashboard3PagePdf, exportDashboardCmPdf } from "../utils/pdfExport";
 import { TopErrorsTable, statusCodeRenderer, type TopErrorColumn } from "../components/TopErrorsTable";
 import { CwvDistributionChart } from "../components/CwvDistributionChart";
 import { PagePerformanceTable, type PagePerfRow } from "../components/PagePerformanceTable";
@@ -543,7 +544,9 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   const [activeCmTopPagesQuery, setActiveCmTopPagesQuery] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isExporting3Page, setIsExporting3Page] = useState(false);
+  const [isExportingCm, setIsExportingCm] = useState(false);
   const [notesForExport, setNotesForExport] = useState("");
+  const [cmNotesForExport, setCmNotesForExport] = useState("");
   const [notesByTab, setNotesByTab] = useState<Record<number, string>>({ 0: "", 1: "" });
   const [isGenerating, setIsGenerating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -557,13 +560,14 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   const dashboardRef = useRef<HTMLDivElement>(null);
   const pdfLayoutRef = useRef<HTMLDivElement>(null);
   const pdfLayout3PageRef = useRef<PdfLayout3PageHandle>(null);
+  const pdfLayoutCmRef = useRef<PdfLayoutCmHandle>(null);
 
   const toggleChart = useCallback((key: keyof ChartVisibility) => {
     setChartVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
   const handleTabChange = useCallback((idx: number) => {
-    if (isGenerating || isExporting || isExporting3Page) return;
+    if (isGenerating || isExporting || isExporting3Page || isExportingCm) return;
     setActiveTab(idx);
   }, [isGenerating, isExporting, isExporting3Page]);
 
@@ -933,6 +937,18 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
     }, 300);
   };
 
+  const handleExportCm = () => {
+    if (!pdfLayoutCmRef.current || !selectedFrontend || isExportingCm) return;
+    setIsExportingCm(true);
+    setCmNotesForExport(notesByTab[1] ?? "");
+    setTimeout(() => {
+      const pages = pdfLayoutCmRef.current!.getPages().filter(Boolean) as HTMLElement[];
+      exportDashboardCmPdf(pages, selectedFrontend).finally(() => {
+        setIsExportingCm(false);
+      });
+    }, 300);
+  };
+
   const last = records[records.length - 1];
   const prior = records[records.length - 2];
   const lastVitals = vitalsRecords[vitalsRecords.length - 1];
@@ -1013,8 +1029,17 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
         inpMs: r.inp_p75 ?? 0,
         cls: r.cls_p75 != null ? r.cls_p75 / 10000 : 0,
       })),
+      topPages: cmTopPagesRows.map((r) => ({
+        name: r.name,
+        count: r.count,
+        lcp: r.lcp,
+        inp: r.inp,
+        cls: r.cls,
+        exceptions: r.exceptions,
+        requestErrors: r.requestErrors,
+      })),
     };
-  }, [selectedFrontend, cmDailyDeviceChartData, cmDailyCwvChartData, cmErrorChartData, cmDeviceCompareRecords]);
+  }, [selectedFrontend, cmDailyDeviceChartData, cmDailyCwvChartData, cmErrorChartData, cmDeviceCompareRecords, cmTopPagesRows]);
 
   return (
     <Flex flexDirection="column" gap={24} paddingTop={32} paddingRight={32} paddingBottom={64} paddingLeft={32}>
@@ -1058,6 +1083,15 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                   style={{ minWidth: "9rem", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
                 >
                   {isExporting3Page ? <ProgressCircle size="small" /> : "Export PDF (3-page)"}
+                </Button>
+
+                <Button
+                  variant="emphasized"
+                  onClick={handleExportCm}
+                  disabled={isExportingCm || !selectedFrontend}
+                  style={{ minWidth: "11rem", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
+                >
+                  {isExportingCm ? <ProgressCircle size="small" /> : "Export Current Month"}
                 </Button>
 
                 <Button
@@ -1404,6 +1438,45 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
             browserPerfLatestMonth={browserPerfLatestMonth}
           />
         </>
+      )}
+
+      {/* Off-screen Current Month PDF — rendered whenever a frontend is selected */}
+      {selectedFrontend && (
+        <PdfLayoutCm
+          ref={pdfLayoutCmRef}
+          frontendName={selectedFrontend}
+          environmentName={environmentName}
+          month={(() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toLocaleDateString("en-US", { month: "long", year: "numeric" }); })()}
+          analystNotes={cmNotesForExport}
+          kpis={[
+            { label: "Sessions", value: cmTotalSessions.toLocaleString(), change: null, color: COLORS.sessions },
+            { label: "Page Loads", value: cmTotalPageLoads.toLocaleString(), change: null, color: COLORS.pageLoads },
+            { label: "LCP p75", value: formatLcp(cmOverallLcp), change: null, color: cwvLcpColor(cmOverallLcp), lowerIsBetter: true },
+            { label: "INP p75", value: formatLcp(cmOverallInp), change: null, color: cwvInpColor(cmOverallInp), lowerIsBetter: true },
+            { label: "CLS p75", value: (cmOverallCls / 10000).toFixed(3), change: null, color: cwvClsColor(cmOverallCls / 10000), lowerIsBetter: true },
+          ] satisfies KpiTile[]}
+          dailyDeviceData={cmDailyDeviceChartData}
+          lastMonthRange={lastMonthRange}
+          deviceCompareRows={cmDeviceCompareRecords.map(r => ({
+            deviceType: r.device_type ?? "other",
+            sessions: r.sessions ?? 0,
+            pageLoads: r.page_loads ?? 0,
+            lcpP75: r.lcp_p75 ?? 0,
+            inpP75: r.inp_p75 ?? 0,
+            clsP75: (r.cls_p75 ?? 0) / 10000,
+          }))}
+          cwvTierData={cmCwvTierRecord}
+          cwvDistributionData={cmCwvDistributionRecord}
+          lcpP75={cmOverallLcp}
+          inpP75={cmOverallInp}
+          clsP75={cmOverallCls / 10000}
+          dailyCwvData={cmDailyCwvChartData}
+          topPagesRows={cmTopPagesRows}
+          errorChartData={cmErrorChartData}
+          errorCountData={cmErrorCountChartData}
+          topExceptionRows={cmTopExceptionRows as unknown as Record<string, string | number | null>[]}
+          topRequestErrorRows={cmTopRequestErrorRows as unknown as Record<string, string | number | null>[]}
+        />
       )}
 
       {!isLimited && <Drawer

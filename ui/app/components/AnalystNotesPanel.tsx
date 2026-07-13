@@ -42,6 +42,7 @@ export interface CurrentMonthAnalystContext {
   dailyCwv: Array<{ day: string; lcpMs: number; inpMs: number; cls: number }>;
   dailyErrors: Array<{ day: string; jsErrorSessions: number; reqErrorSessions: number }>;
   deviceCompare: Array<{ deviceType: string; sessions: number; pageLoads: number; lcpMs: number; inpMs: number; cls: number }>;
+  topPages: Array<{ name: string; count: number; lcp: number | null; inp: number | null; cls: number | null; exceptions: number | null; requestErrors: number | null }>;
 }
 
 interface AnalystNotesPanelProps {
@@ -99,7 +100,7 @@ function buildSupplementary(context: AnalystNotesContext): string {
 }
 
 function buildCmSupplementary(context: CurrentMonthAnalystContext): string {
-  const { frontendName, dailyByDevice, dailyCwv, dailyErrors, deviceCompare } = context;
+  const { frontendName, dailyByDevice, dailyCwv, dailyErrors, deviceCompare, topPages } = context;
   const lines: string[] = [];
 
   lines.push(`Frontend: ${frontendName} — Current Month (MTD)`);
@@ -134,6 +135,15 @@ function buildCmSupplementary(context: CurrentMonthAnalystContext): string {
     ));
   }
 
+  if (topPages && topPages.length > 0) {
+    lines.push("\n--- Top Pages by Visit Volume ---");
+    lines.push("Thresholds: LCP good <2.5s / poor >4s | INP good <200ms / poor >500ms | CLS good <0.1 / poor >0.25");
+    lines.push("Page | Visits | LCP p75 | INP p75 | CLS p75 | Avg Exceptions | Avg Req Errors");
+    topPages.forEach(r => lines.push(
+      `${r.name} | ${r.count.toLocaleString()} | ${r.lcp != null ? fmtMs(r.lcp) : "—"} | ${r.inp != null ? fmtMs(r.inp) : "—"} | ${r.cls != null ? r.cls.toFixed(3) : "—"} | ${r.exceptions != null ? r.exceptions.toFixed(2) : "—"} | ${r.requestErrors != null ? r.requestErrors.toFixed(2) : "—"}`
+    ));
+  }
+
   return lines.join("\n");
 }
 
@@ -146,7 +156,7 @@ async function generateNotes(context: AnalystNotesContext | CurrentMonthAnalystC
 
 ${dataBlock}
 
-Respond ONLY in markdown bullet points (- item). One short sentence per bullet. Include 3-4 bullet points under each heading ONLY IF there are that many notable findings — use fewer bullets if there is genuinely less to say. Group under three headings: ## Traffic, ## Core Web Vitals, ## Error Rates. No preamble, no conclusion, no general advice.`;
+Respond ONLY in markdown bullet points (- item). One short sentence per bullet. Include 3-4 bullet points under each heading ONLY IF there are that many notable findings — use fewer bullets if there is genuinely less to say. Group under four headings: ## Traffic, ## Core Web Vitals, ## Top Pages, ## Error Rates. No preamble, no conclusion, no general advice.`;
   } else {
     const { frontendName, trafficTrend } = context;
     const latestMonth = trafficTrend[trafficTrend.length - 1]?.month ?? "";
@@ -178,6 +188,26 @@ Respond ONLY in markdown bullet points (- item). One short sentence per bullet. 
   const content: string = data?.text ?? JSON.stringify(data);
   return content;
 }
+
+export const CM_PLACEHOLDER = `## Traffic
+- Significant session spikes on Jun 3 (22,132) and Jun 11 (20,602), with a sharp drop on Jun 13 (1,131).
+- Minimal traffic on Jun 14 (90), Jun 16 (41), and Jun 28 (42).
+- No sessions recorded on Jun 6–8, indicating potential data gaps or outages.
+
+## Core Web Vitals
+- LCP remained consistently good (<2.5s) except Jun 16 (525ms, poor).
+- INP consistently poor (>500ms) across all days, peaking at 5.34s on Jun 28.
+- CLS remained excellent (0.000) throughout the month.
+
+## Top Pages
+- \`/checkout\` violated all thresholds: LCP 4.80s, INP 520ms, CLS 0.310 (all poor).
+- \`/search\` and \`/category/:slug\` had poor INP (340ms, 300ms) and CLS nearing poor thresholds.
+- \`/home\` and \`/login\` performed well across all Core Web Vitals metrics.
+
+## Error Rates
+- Request error sessions spiked on Jun 11 (7,899) and Jun 20 (7,244).
+- JS error sessions peaked on Jun 18 (5,851) and Jun 29 (3,893).
+- Minimal errors on Jun 14 (25 request errors, 0 JS errors).`;
 
 export const AnalystNotesPanel: React.FC<AnalystNotesPanelProps> = ({ value, onChange, onGeneratingChange, context }) => {
   const [expanded, setExpanded] = useState(false);
@@ -363,7 +393,7 @@ export const AnalystNotesPanel: React.FC<AnalystNotesPanelProps> = ({ value, onC
               ref={textareaRef}
               value={value}
               onChange={(e) => onChange(e.target.value)}
-              placeholder=""
+              placeholder={isCmContext(context) ? CM_PLACEHOLDER : ""}
               style={{
                 flex: 1,
                 background: "var(--dt-colors-background-surface-sunken, #0f1117)",

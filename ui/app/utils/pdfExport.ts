@@ -26,6 +26,28 @@ export async function exportDashboardPdf(element: HTMLElement, frontendName: str
   pdf.save(filename);
 }
 
+export async function exportDashboardCmPdf(pages: HTMLElement[], frontendName: string): Promise<void> {
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+
+  for (let i = 0; i < pages.length; i++) {
+    const el = pages[i];
+    const canvas = await html2canvas(el, {
+      scale: 1.5, useCORS: true, backgroundColor: "#0f1117", logging: false,
+      width: el.offsetWidth, height: el.offsetHeight,
+      windowWidth: el.offsetWidth, windowHeight: el.offsetHeight,
+    });
+    const imgData = canvas.toDataURL("image/jpeg", 0.85);
+    if (i > 0) pdf.addPage();
+    pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, pageHeight);
+  }
+
+  const now = new Date();
+  const filename = `current-month-${frontendName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}.pdf`;
+  pdf.save(filename);
+}
+
 export async function exportDashboard3PagePdf(pages: HTMLElement[], frontendName: string): Promise<void> {
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageWidth = pdf.internal.pageSize.getWidth();

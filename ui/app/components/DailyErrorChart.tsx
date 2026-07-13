@@ -79,6 +79,8 @@ interface Props {
   data: DailyErrorPoint[];
   errorCounts?: DailyErrorCountPoint[];
   fillRange?: [number, number];
+  section?: "js" | "req" | "counts"; // if omitted, renders all three stacked
+  chartHeight?: number;
 }
 
 const ERROR_TYPE_COLORS: Record<string, string> = {
@@ -90,7 +92,7 @@ const ERROR_TYPE_COLORS: Record<string, string> = {
 };
 const ERROR_TYPE_COLOR_FALLBACKS = ["#7B61FF", "#2ECC85", "#00B8E0", "#888EA8"];
 
-export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange }) => {
+export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange, section, chartHeight = 180 }) => {
   const { jsRows, reqRows, deviceTypes } = useMemo(() => {
     type DayDevice = { js: number; req: number; total: number };
     const dayDeviceMap = new Map<number, Map<string, DayDevice>>();
@@ -210,7 +212,7 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
       <div style={{ fontSize: 11, color: TOKEN.textSubtle, fontFamily: FONT, marginBottom: 6, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
         {title}
       </div>
-      <ResponsiveContainer width="100%" height={180}>
+      <ResponsiveContainer width="100%" height={chartHeight}>
         <LineChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={TOKEN.grid} vertical={false} />
           <XAxis dataKey="day" tick={axisStyle} axisLine={false} tickLine={false} interval={tickInterval} />
@@ -282,7 +284,7 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
       <div style={{ fontSize: 11, color: TOKEN.textSubtle, fontFamily: FONT, marginBottom: 6, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
         {title}
       </div>
-      <ResponsiveContainer width="100%" height={180}>
+      <ResponsiveContainer width="100%" height={chartHeight}>
         <BarChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 8 }} barCategoryGap="20%">
           <CartesianGrid vertical={false} stroke={TOKEN.grid} />
           <XAxis dataKey="day" tick={axisStyle} axisLine={false} tickLine={false} interval={tickInterval} />
@@ -312,6 +314,12 @@ export const DailyErrorChart: React.FC<Props> = ({ data, errorCounts, fillRange 
     </div>
     );
   };
+
+  if (section === "js") return <>{lineChart(jsRows, "JS Error Rate (% of sessions)")}</>;
+  if (section === "req") return <>{lineChart(reqRows, "Request Error Rate (% of sessions)")}</>;
+  if (section === "counts") {
+    return errorCountRows.length > 0 ? <>{barChart(errorCountRows, "Error Count (daily)", errorTypes, (key, i) => ERROR_TYPE_COLORS[key] ?? ERROR_TYPE_COLOR_FALLBACKS[i % ERROR_TYPE_COLOR_FALLBACKS.length])}</> : null;
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
