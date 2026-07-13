@@ -523,6 +523,7 @@ const TOP_REQUEST_ERROR_COLUMNS: TopErrorColumn[] = [
   { key: "url.path", label: "Path" },
 ];
 
+
 export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   const [selectedFrontend, setSelectedFrontend] = useState<string | null>(null);
   const [activeQuery, setActiveQuery] = useState<string | null>(null);
@@ -1075,32 +1076,27 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
 
             {!isLimited && (
               <>
-                <Button
-                  variant="default"
-                  onClick={handleExport}
-                  disabled={isExporting || !hasData}
-                  style={{ minWidth: "7.5rem", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
-                >
-                  {isExporting ? <ProgressCircle size="small" /> : "Export PDF"}
-                </Button>
+                {activeTab === 0 && (
+                  <Button
+                    variant="emphasized"
+                    onClick={handleExport3Page}
+                    disabled={isExporting3Page || !hasData}
+                    style={{ width: "11rem", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
+                  >
+                    {isExporting3Page ? <ProgressCircle size="small" /> : "Export Trending"}
+                  </Button>
+                )}
 
-                <Button
-                  variant="emphasized"
-                  onClick={handleExport3Page}
-                  disabled={isExporting3Page || !hasData}
-                  style={{ minWidth: "9rem", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
-                >
-                  {isExporting3Page ? <ProgressCircle size="small" /> : "Export PDF (3-page)"}
-                </Button>
-
-                <Button
-                  variant="emphasized"
-                  onClick={handleExportCm}
-                  disabled={isExportingCm || !selectedFrontend}
-                  style={{ minWidth: "11rem", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
-                >
-                  {isExportingCm ? <ProgressCircle size="small" /> : `Export ${lastMonthLabel}`}
-                </Button>
+                {activeTab === 1 && (
+                  <Button
+                    variant="emphasized"
+                    onClick={handleExportCm}
+                    disabled={isExportingCm || !selectedFrontend}
+                    style={{ width: "11rem", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
+                  >
+                    {isExportingCm ? <ProgressCircle size="small" /> : `Export ${lastMonthLabel}`}
+                  </Button>
+                )}
 
                 <Button
                   variant="default"
