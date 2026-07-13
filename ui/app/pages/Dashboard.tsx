@@ -992,11 +992,19 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
     };
   }, [selectedFrontend, records.length, chartData, vitalsChartData, browserPerfChartData]);
 
+  const lastMonthLabel = (() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
+    return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  })();
+
   const cmNotesContext: CurrentMonthAnalystContext | undefined = useMemo(() => {
     if (!selectedFrontend || cmDailyDeviceChartData.length === 0) return undefined;
     return {
       type: 'last-month',
       frontendName: selectedFrontend,
+      monthLabel: lastMonthLabel,
       dailyByDevice: cmDailyDeviceChartData.map((r) => {
         const ts = typeof r.day === "number" ? r.day : r.day ? new Date(r.day as string).getTime() : null;
         const d = ts ? new Date(ts) : null;
@@ -1091,7 +1099,7 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                   disabled={isExportingCm || !selectedFrontend}
                   style={{ minWidth: "11rem", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
                 >
-                  {isExportingCm ? <ProgressCircle size="small" /> : "Export Current Month"}
+                  {isExportingCm ? <ProgressCircle size="small" /> : `Export ${lastMonthLabel}`}
                 </Button>
 
                 <Button
@@ -1206,7 +1214,7 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
           )}
         </Tab>
 
-        <Tab title="Last Month">
+        <Tab title={lastMonthLabel}>
           {(cmDeviceLoading || cmCwvLoading || cmDeviceCompareLoading) ? (
             <Flex justifyContent="center" alignItems="center" style={{ minHeight: 400 }}>
               <ProgressCircle />
@@ -1214,13 +1222,13 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
           ) : !selectedFrontend ? (
             <Surface elevation="raised" padding={40}>
               <Flex justifyContent="center" alignItems="center" style={{ minHeight: 300 }}>
-                <Text>Select a frontend to view last month's metrics.</Text>
+                <Text>Select a frontend to view {lastMonthLabel} metrics.</Text>
               </Flex>
             </Surface>
           ) : cmTotalSessions === 0 && !cmDeviceLoading ? (
             <Surface elevation="raised" padding={40}>
               <Flex justifyContent="center" alignItems="center" style={{ minHeight: 300 }}>
-                <Text>No data found for last month.</Text>
+                <Text>No data found for {lastMonthLabel}.</Text>
               </Flex>
             </Surface>
           ) : (
@@ -1352,7 +1360,7 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                 <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
                   <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Top Exceptions</Heading>
                   <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
-                    Most frequent JS exceptions last month
+                    Most frequent JS exceptions in {lastMonthLabel}
                   </Text>
                   {cmTopExceptionsLoading ? (
                     <Flex justifyContent="center" alignItems="center" style={{ minHeight: 80 }}><ProgressCircle /></Flex>
@@ -1369,7 +1377,7 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                 <Surface elevation="raised" padding={24} style={{ flex: 1, minWidth: 0 }}>
                   <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Top Request Errors</Heading>
                   <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
-                    Most frequent failed HTTP requests last month
+                    Most frequent failed HTTP requests in {lastMonthLabel}
                   </Text>
                   {cmTopRequestErrorsLoading ? (
                     <Flex justifyContent="center" alignItems="center" style={{ minHeight: 80 }}><ProgressCircle /></Flex>
@@ -1446,7 +1454,7 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
           ref={pdfLayoutCmRef}
           frontendName={selectedFrontend}
           environmentName={environmentName}
-          month={(() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toLocaleDateString("en-US", { month: "long", year: "numeric" }); })()}
+          month={lastMonthLabel}
           analystNotes={cmNotesForExport}
           kpis={[
             { label: "Sessions", value: cmTotalSessions.toLocaleString(), change: null, color: COLORS.sessions },

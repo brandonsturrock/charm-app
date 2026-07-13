@@ -402,7 +402,7 @@ const PageShell: React.FC<PageShellProps> = ({ divRef, frontendName, environment
         textAlign: "center", pointerEvents: "none",
       }}>
         <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "0.28em", color: "#ffffff", textTransform: "uppercase" }}>
-          Current Month
+          {month}
         </div>
         <div style={{ fontSize: 12, fontWeight: 500, color: S.textSecondary, letterSpacing: "0.16em", textTransform: "uppercase", marginTop: 4 }}>
           {PAGE_SECTION_LABELS[pageNum]}

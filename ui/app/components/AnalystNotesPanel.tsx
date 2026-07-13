@@ -38,6 +38,7 @@ export interface AnalystNotesContext {
 export interface CurrentMonthAnalystContext {
   type: 'last-month';
   frontendName: string;
+  monthLabel: string;
   dailyByDevice: Array<{ day: string; deviceType: string; sessions: number }>;
   dailyCwv: Array<{ day: string; lcpMs: number; inpMs: number; cls: number }>;
   dailyErrors: Array<{ day: string; jsErrorSessions: number; reqErrorSessions: number }>;
@@ -103,7 +104,7 @@ function buildCmSupplementary(context: CurrentMonthAnalystContext): string {
   const { frontendName, dailyByDevice, dailyCwv, dailyErrors, deviceCompare, topPages } = context;
   const lines: string[] = [];
 
-  lines.push(`Frontend: ${frontendName} — Current Month (MTD)`);
+  lines.push(`Frontend: ${frontendName} — ${context.monthLabel}`);
 
   const byDay = new Map<string, number>();
   dailyByDevice.forEach(r => byDay.set(r.day, (byDay.get(r.day) ?? 0) + r.sessions));
@@ -152,7 +153,7 @@ async function generateNotes(context: AnalystNotesContext | CurrentMonthAnalystC
 
   if (isCmContext(context)) {
     const dataBlock = buildCmSupplementary(context);
-    promptText = `You are a web performance analyst writing an internal last month review for ${context.frontendName}. Below is the real metric data for last month. Analyze ONLY these numbers — do not provide general Dynatrace guidance or product help. Identify day-over-day trends, flag Core Web Vitals threshold violations (LCP good <2.5s/poor >4s, INP good <200ms/poor >500ms, CLS good <0.1/poor >0.25), note error session spikes, and compare mobile vs desktop performance.
+    promptText = `You are a web performance analyst writing an internal ${context.monthLabel} review for ${context.frontendName}. Below is the real metric data for ${context.monthLabel}. Analyze ONLY these numbers — do not provide general Dynatrace guidance or product help. Identify day-over-day trends, flag Core Web Vitals threshold violations (LCP good <2.5s/poor >4s, INP good <200ms/poor >500ms, CLS good <0.1/poor >0.25), note error session spikes, and compare mobile vs desktop performance.
 
 ${dataBlock}
 
