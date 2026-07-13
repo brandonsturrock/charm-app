@@ -12,7 +12,7 @@
         },
         "environmentUrl": {
           "type": "string",
-          "description": "The target Dynatrace environment URL where the app will be deployed. Must be a valid HTTPS URL pointing to your Dynatrace tenant.",
+          "description": "URL to the environment of the project.",
           "format": "url",
           "errorMessage": "must contain a valid 'environmentUrl'. Please specify one in your 'app.config.(json|js|ts|cts)' file"
         },
@@ -69,7 +69,7 @@
             "production",
             "development"
           ],
-          "description": "Build environment mode affecting optimization, minification, and debugging features. Production mode enables optimizations while development mode preserves debugging info.",
+          "description": "Whether the build should be performed in production or development mode.",
           "default": "'production' when building and 'development' when using development server"
         },
         "sourceMaps": {
@@ -82,13 +82,18 @@
               "const": "all"
             }
           ],
-          "description": "Controls source map generation for debugging support.\n- `true`: Generate source maps for application code only\n- `'all'`: Include source maps for both application code and node_modules\n- `false`: No source maps generated",
-          "default": "undefined (treated as 'all' for development, 'false' for production builds)",
+          "description": "Output source maps for app code and libraries. If set to 'true', only source maps for app code is included. Source maps for node_modules are included if the option is set to 'all'. By default, the option is treated as 'all' for development and 'false' for builds.",
+          "default": "undefined",
           "errorMessage": "must be one of the following values: true, false, 'all'"
+        },
+        "namedChunks": {
+          "type": "boolean",
+          "description": "Use readable chunk names instead of content hashes in optimized builds. Useful for comparing bundles across builds (e.g. in PR pipelines) and for debugging. Only has an effect when using --optimize. The dev server never obfuscates chunk names regardless of this setting.",
+          "default": false
         },
         "sourceRoot": {
           "type": "string",
-          "description": "All source file paths are resolved relative to this directory. <sourceRoot>/{ui,api,actions,settings,documents} Is relative to project root.",
+          "description": "Location of source files.",
           "default": "./"
         },
         "baseHref": {
@@ -160,7 +165,7 @@
               "description": "Static asset configurations defining how files are copied and served. Each asset configuration handles different types of static resources."
             }
           },
-          "description": "UI-specific build configuration including asset management and plugin settings. Controls how frontend resources are processed and bundled."
+          "description": "UI-specific build configuration including asset management and plugin settings. Controls how frontend resources are processed and bundled. If optimize is enabled, Vite plugins from this configuration will be used for the main UI build, and ESBuild plugins will be used for widgets."
         },
         "api": {
           "type": "object",
@@ -412,9 +417,14 @@
         "mangleCache": {
           "type": "object",
           "additionalProperties": {
-            "type": "boolean",
-            "enum": [
-              false
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean",
+                "const": false
+              }
             ]
           },
           "description": "Documentation: https://esbuild.github.io/api/#mangle-props"
@@ -970,22 +980,22 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Globally unique application identifier used for registration and deployment. Must be alphanumeric lowercase string, maximum 50 characters. Follow reverse domain notation (e.g., 'com.company.app').",
+          "description": "The unique identifier of the app. Limited to 50 characters. Must be an alphanumeric string containing only lowercase characters.",
           "pattern": "^[a-z0-9]+(\\.[a-z0-9]+)*$",
           "maxLength": 50
         },
         "name": {
           "type": "string",
-          "description": "Human-readable application name displayed in the Dynatrace interface. Maximum 40 characters, should be descriptive and user-friendly.",
+          "description": "The name of the app. Limited to 40 characters.",
           "maxLength": 40
         },
         "version": {
           "type": "string",
-          "description": "Semantic version string following semver specification (e.g., '1.0.0'). Used for app lifecycle management and compatibility checks."
+          "description": "The version of the app."
         },
         "description": {
           "type": "string",
-          "description": "Brief application description explaining its purpose and functionality. Maximum 80 characters, displayed in app catalogs and listings.",
+          "description": "The description of the app. Limited to 80 characters.",
           "maxLength": 80
         },
         "documentTypes": {
@@ -1010,31 +1020,32 @@
         },
         "icon": {
           "type": "string",
-          "description": "Path to the application icon file, relative to the project root. Supports SVG (recommended) or PNG formats. Auto-generated if not specified. Icon appears in app launchers and navigation interfaces.",
+          "description": "Path to the app icon, can either be a .svg (recommended) or .png file. An icon will be auto-generated if no icon path is set.",
           "format": "relative-path",
           "errorMessage": "must be a relative path"
         },
         "hidden": {
           "type": "boolean",
-          "description": "Controls visibility in the Dynatrace App Launcher. Set to true for widget-only apps or background services that don't need launcher presence."
+          "description": "Hides the listing in the App Launcher. Useful for widget apps."
         },
         "intents": {
           "$ref": "#/definitions/IntentsDeclarations",
-          "description": "Application capabilities for handling system intents and cross-app communication. Defines what types of data and actions the app can process from other apps."
+          "description": "The list of app capabilities of handling the intents. Use `IntentDeclaration` from `@dynatrace-sdk/navigation` for authoring intent declarations.",
+          "deprecated": true
         },
         "pageTokens": {
           "type": "object",
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Named page routes exposed by the app for deep linking and navigation. Maps logical page names to URL paths within the application."
+          "description": "The list of page tokens exposed by the app."
         },
         "actions": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/Action"
           },
-          "description": "Workflow automation actions provided by the app. Enables integration with Dynatrace automation workflows and external systems. Is relative to the sourceRoot."
+          "description": "Workflow automation actions provided by the app. Workflow automation actions are automatically deployed with the app when detected on the filesystem, regardless of whether they are explicitly configured here. Enables integration with Dynatrace automation workflows and external systems. Is relative to the sourceRoot."
         },
         "csp": {
           "$ref": "#/definitions/CSPAppDirectives",
@@ -1068,11 +1079,11 @@
             },
             "description": "OAuth 2.0 scope definition for Dynatrace API access permissions. Defines specific API capabilities required by the application with justification."
           },
-          "description": "OAuth scopes required by the application for accessing Dynatrace APIs and data. Each scope must include a descriptive comment explaining its necessity."
+          "description": "The list of scopes required by the app."
         },
         "selfMonitoringAgent": {
           "type": "string",
-          "description": "URL endpoint for the self-monitoring agent script. Enables application performance monitoring and diagnostics within Dynatrace."
+          "description": "The self monitoring agent url"
         },
         "uiCommands": {
           "type": "object",
@@ -1120,7 +1131,7 @@
               "errorMessage": "contains unknown property ${0#}. Please check if there is a typo or remove it"
             }
           },
-          "description": "Configuration widgets for app-specific settings management. Provides structured forms for users to configure app behavior and preferences. Is relative to the sourceRoot."
+          "description": "Configuration widgets for app-specific settings management. Settings widgets are automatically deployed with the app when detected on the filesystem, regardless of whether they are explicitly configured here. Provides structured forms for users to configure app behavior and preferences. Is relative to the sourceRoot."
         },
         "documents": {
           "type": "object",
@@ -1160,26 +1171,235 @@
     "IntentsDeclarations": {
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/definitions/IntentDeclaration"
-      }
-    },
-    "IntentDeclaration": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
+        "type": "object",
         "properties": {
-          "$ref": "#/definitions/IntentDeclarationProperties%3C(BuiltinTypes%7Cstring)%3E"
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/definitions/IntentDeclarationProperties%3C(BuiltinTypes%7Cstring)%3E"
+          },
+          "deprecated": {
+            "type": "boolean"
+          },
+          "addonMode": {
+            "type": "string",
+            "const": "overlay",
+            "description": "Opens the addon as an overlay on top of the current view."
+          },
+          "addonConfig": {
+            "$ref": "#/definitions/AddonConfig",
+            "description": "Visual configuration for the overlay."
+          },
+          "responseProperties": {
+            "$ref": "#/definitions/IntentDeclarationProperties%3Cany%3E",
+            "description": "Properties returned by the addon to the source."
+          }
         }
       },
-      "required": [
-        "description",
-        "properties"
+      "description": "App intent declarations, keyed by intent id.\n\nEach declaration is the `IntentDeclaration` from `@dynatrace-sdk/navigation` widened with an open index signature. The platform backend still accepts declaration properties that are not (yet) part of the typed `IntentDeclaration` — for example `visualMode` or `modalContentHeight` — so the index signature lets app teams keep authoring those without a type error until they migrate to the current intent declaration structure.\n\nThe open index signature is a temporary compatibility shim. It should be removed once app teams have migrated to the typed `IntentDeclaration` structure exposed by `@dynatrace-sdk/navigation`. The accompanying `@deprecated` notice lives on the `intents` option so it surfaces on hover in app configs."
+    },
+    "AddonConfig": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "not": true,
+            "errorMessage": "contains unknown property ${0#}. Please check if there is a typo or remove it"
+          },
+          "properties": {
+            "size": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "height": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "description": "Preset size values for an addon overlay."
+                        },
+                        {
+                          "type": "string",
+                          "const": "auto"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "width": {
+                      "type": "string",
+                      "enum": [
+                        "small",
+                        "medium",
+                        "large"
+                      ],
+                      "description": "Preset size values for an addon overlay."
+                    }
+                  },
+                  "additionalProperties": {
+                    "not": true,
+                    "errorMessage": "contains unknown property ${0#}. Please check if there is a typo or remove it"
+                  },
+                  "description": "Object form of addon size configuration, allowing separate control of width and height."
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "large"
+                  ],
+                  "description": "Preset size values for an addon overlay."
+                },
+                {
+                  "type": "string",
+                  "const": "maximized"
+                }
+              ],
+              "description": "Size configuration for an addon overlay."
+            },
+            "headless": {
+              "type": "boolean",
+              "const": true,
+              "description": "When `true`, the addon is rendered without a title bar."
+            }
+          },
+          "required": [
+            "headless"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "not": true,
+            "errorMessage": "contains unknown property ${0#}. Please check if there is a typo or remove it"
+          },
+          "properties": {
+            "size": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "height": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "description": "Preset size values for an addon overlay."
+                        },
+                        {
+                          "type": "string",
+                          "const": "auto"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "width": {
+                      "type": "string",
+                      "enum": [
+                        "small",
+                        "medium",
+                        "large"
+                      ],
+                      "description": "Preset size values for an addon overlay."
+                    }
+                  },
+                  "additionalProperties": {
+                    "not": true,
+                    "errorMessage": "contains unknown property ${0#}. Please check if there is a typo or remove it"
+                  },
+                  "description": "Object form of addon size configuration, allowing separate control of width and height."
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "large"
+                  ],
+                  "description": "Preset size values for an addon overlay."
+                },
+                {
+                  "type": "string",
+                  "const": "maximized"
+                }
+              ],
+              "description": "Size configuration for an addon overlay."
+            },
+            "headless": {
+              "type": "boolean",
+              "const": false
+            },
+            "title": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "description": "Visual configuration options for an addon overlay."
+    },
+    "IntentDeclarationProperties<any>": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/IntentPropertyDeclaration%3Cany%3E"
+      }
+    },
+    "IntentPropertyDeclaration<any>": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/IntentPropertyDeclarationWithSchema"
+        },
+        {
+          "$ref": "#/definitions/IntentPropertyDeclarationWithSchemas%3Cany%3E"
+        }
       ]
+    },
+    "IntentPropertyDeclarationWithSchema": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "type": {}
+          }
+        }
+      }
+    },
+    "IntentPropertyDeclarationWithSchemas<any>": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "schemas": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "type": {}
+            }
+          }
+        }
+      }
     },
     "IntentDeclarationProperties<(BuiltinTypes|string)>": {
       "type": "object",
@@ -1208,36 +1428,6 @@
         }
       ]
     },
-    "IntentPropertyDeclarationWithSchema": {
-      "type": "object",
-      "properties": {
-        "required": {
-          "type": "boolean"
-        },
-        "schema": {
-          "type": "object",
-          "properties": {
-            "type": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "required": [
-        "required",
-        "schema"
-      ]
-    },
     "IntentPropertyDeclarationWithSchemas<(BuiltinTypes|string)>": {
       "type": "object",
       "properties": {
@@ -1250,82 +1440,30 @@
             "dt.query": {
               "type": "object",
               "properties": {
-                "type": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                }
+                "type": {}
               }
             },
             "dt.timeframe": {
               "type": "object",
               "properties": {
-                "type": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                }
+                "type": {}
               }
             },
             "dt.entity.host": {
               "type": "object",
               "properties": {
-                "type": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                }
+                "type": {}
               }
             }
           },
           "additionalProperties": {
             "type": "object",
             "properties": {
-              "type": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                ]
-              }
+              "type": {}
             }
           }
         }
-      },
-      "required": [
-        "required",
-        "schemas"
-      ]
+      }
     },
     "Action": {
       "type": "object",
@@ -1390,35 +1528,35 @@
           "items": {
             "$ref": "#/definitions/DirectiveValue"
           },
-          "description": "Specifies valid sources for web fonts loaded by the application."
+          "description": "The font-src directive specifies valid sources for fonts loaded."
         },
         "img-src": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/DirectiveValue"
           },
-          "description": "Defines allowed sources for images and favicons used in the application. Includes img elements, CSS background images, and favicon resources."
+          "description": "The img-src directive specifies valid sources of images and favicons."
         },
         "media-src": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/DirectiveValue"
           },
-          "description": "Controls valid sources for audio and video media content. Applies to HTML5 audio/video elements and media streaming resources."
+          "description": "The media-src directive specifies valid sources for loading media."
         },
         "style-src": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/DirectiveValue"
           },
-          "description": "Specifies trusted sources for CSS stylesheets and style resources. Covers external stylesheets, inline styles, and CSS imports."
+          "description": "The style-src directive specifies valid sources for stylesheets."
         },
         "script-src": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/DirectiveValue"
           },
-          "description": "Defines allowed sources for JavaScript code execution and script resources. Includes external scripts, inline event handlers, eval(), and XSLT transformations. Critical for preventing XSS attacks through script injection."
+          "description": "The script-src directive specifies valid sources for JavaScript. This includes not only URLs loaded directly into script elements, but also things like inline script event handlers (onclick) and XSLT stylesheets which can trigger script execution."
         }
       },
       "additionalProperties": {
@@ -1468,11 +1606,11 @@
       "properties": {
         "value": {
           "type": "boolean",
-          "description": "Enables/disables the usage of the eval() JavaScript function"
+          "description": "Enables/disables the usage of the eval() JavaScript function in the scope of a dynatrace app function."
         },
         "comment": {
           "type": "string",
-          "description": "Additional comment to specify why the eval() function is being used"
+          "description": "Additional comment to specify why the eval() function is being used."
         }
       },
       "required": [
@@ -1576,22 +1714,22 @@
       "properties": {
         "port": {
           "type": "number",
-          "description": "TCP port number for the development server to listen on. Choose an available port that doesn't conflict with other services.",
+          "description": "Port where the app should be served.",
           "default": 3000
         },
         "host": {
           "type": "string",
-          "description": "Network interface IP address to bind the development server. Use '127.0.0.1' for localhost only",
+          "description": "The host IP to bind the dev server on.",
           "default": "127.0.0.1"
         },
         "showWarnings": {
           "type": "boolean",
-          "description": "Controls visibility of build warnings in the development server console output. Useful for debugging build issues during development.",
+          "description": "Whether build warnings should be displayed in the dev server or not.",
           "default": false
         },
         "enableCSP": {
           "type": "boolean",
-          "description": "Enables Content Security Policy (CSP) headers for enhanced security during development. When enabled, generates default CSP directives and merges with any custom directives. Frame-related directives are set to allow all sources in local development.",
+          "description": "Whether the dev server should add CSP headers to all requests. If `true`, the dev server will generate a set of default CSP Directives and add the custom CSP Directives to this set if specified. In local development, `frame-src` and `frame-ancestors` are always set to *",
           "default": true
         },
         "https": {
@@ -1610,11 +1748,11 @@
       "properties": {
         "cert": {
           "type": "string",
-          "description": "File system path to the SSL certificate in PEM format."
+          "description": "Path to SSL certificate in PEM format"
         },
         "key": {
           "type": "string",
-          "description": "File system path to the private key file in PEM format."
+          "description": "Path to private key in PEM format"
         }
       },
       "required": [

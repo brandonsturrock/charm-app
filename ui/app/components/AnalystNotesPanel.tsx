@@ -363,7 +363,7 @@ export const AnalystNotesPanel: React.FC<AnalystNotesPanelProps> = ({ value, onC
               ref={textareaRef}
               value={value}
               onChange={(e) => onChange(e.target.value)}
-              placeholder={"## Summary\n- Key insight one\n  - Nested detail\n- Key insight two\n\n**Notable trend:** ..."}
+              placeholder=""
               style={{
                 flex: 1,
                 background: "var(--dt-colors-background-surface-sunken, #0f1117)",

@@ -26,6 +26,7 @@ import { CwvSingleMetricChart, type CwvDailyDevicePoint } from "../components/Cw
 import { exportDashboardPdf, exportDashboard3PagePdf } from "../utils/pdfExport";
 import { TopErrorsTable, statusCodeRenderer, type TopErrorColumn } from "../components/TopErrorsTable";
 import { CwvDistributionChart } from "../components/CwvDistributionChart";
+import { PagePerformanceTable, type PagePerfRow } from "../components/PagePerformanceTable";
 
 function dqlEscape(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -202,6 +203,25 @@ const buildCmCwvDistributionQuery = (fn: string) => `fetch user.events, from: (n
     cls_b10 = countIf(cls_val >= 1.0),
     cls_total = countIf(isNotNull(cls_val))`;
 
+const buildCmTopPagesQuery = (fn: string) => `fetch user.events, from: (now()-1M)@M, to: now()@M
+| filter frontend.name == "${dqlEscape(fn)}"
+| filter dt.rum.user_type == "real_user"
+| filter characteristics.classifier == "page_summary" and isNotNull(page.name)
+| fieldsAdd
+    lcp_ms = toLong(web_vitals.largest_contentful_paint) / 1000000,
+    inp_ms = toLong(web_vitals.interaction_to_next_paint) / 1000000,
+    cls_dec = toDouble(web_vitals.cumulative_layout_shift) / 10000
+| summarize
+    count = count(),
+    lcp = percentile(lcp_ms, 75),
+    inp = percentile(inp_ms, 75),
+    cls = percentile(cls_dec, 75),
+    exceptions = avg(error.exception_count),
+    request_errors = avg(error.http_4xx_count + error.http_5xx_count),
+    by: page.name
+| sort count desc
+| limit 10`;
+
 const buildCmTopExceptionsQuery = (fn: string) => `fetch user.events, from: (now()-1M)@M, to: now()@M
 | filter frontend.name == "${dqlEscape(fn)}"
 | filter dt.rum.user_type == "real_user"
@@ -216,6 +236,7 @@ const buildCmTopRequestErrorsQuery = (fn: string) => `fetch user.events, from: (
 | filter dt.rum.user_type == "real_user"
 | filter characteristics.classifier == "error"
 | filter characteristics.has_failed_request == true
+| filter http.response.status_code > 0
 | filterOut isNull(url.path)
 | summarize count = count(), by: {http.request.method, http.response.status_code, url.host, url.path}
 | sort count desc
@@ -381,20 +402,6 @@ const COLORS = {
   cls: "#73be28",
 };
 
-const TRENDING_DEFAULT_NOTES = `## Traffic
-- Sessions increased significantly from Jan (68,873) to Jun (226,851), with a peak in Feb (234,689).
-- User Actions spiked in Jun (2,199), more than doubling the previous high in Mar (1,034).
-- Page Loads showed steady growth, with a notable jump in Jun (1,126) from May (710).
-
-## Core Web Vitals
-- **LCP** remained consistently good (<2.5s) across all months, improving slightly from Jan (302ms) to Jun (172ms).
-- **INP** consistently violated the poor threshold (>500ms), with minimal improvement from Jan (4.99s) to Jun (4.91s).
-- **CLS** stayed within the good threshold (<0.1) throughout, with no violations.
-
-## Browser & Device
-- Opera had the highest visits in May (55,536) with an INP of 4.93s, slightly better than Chrome (5.13s).
-- Chrome showed the worst INP performance in May (5.13s) among top browsers.
-- All browsers maintained good LCP (<2.5s) and CLS (<0.1) in May.`;
 
 function parseMonth(raw: string | number | null): Date | null {
   if (raw === null) return null;
@@ -497,15 +504,18 @@ const CmDeviceComparisonTable: React.FC<{ records: CmDeviceCompareRecord[] }> = 
   );
 };
 
+const fmtCount = (v: string | number | null) =>
+  typeof v === "number" ? v.toLocaleString() : (v ?? "—");
+
 const TOP_EXCEPTION_COLUMNS: TopErrorColumn[] = [
-  { key: "count", label: "#", align: "right", width: 60 },
+  { key: "count", label: "#", align: "right", width: 60, render: fmtCount },
   { key: "exception.type", label: "Type", width: 200 },
   { key: "exception.message", label: "Message" },
   { key: "error.source", label: "Source", width: 120 },
 ];
 
 const TOP_REQUEST_ERROR_COLUMNS: TopErrorColumn[] = [
-  { key: "count", label: "#", align: "right", width: 60 },
+  { key: "count", label: "#", align: "right", width: 60, render: fmtCount },
   { key: "http.request.method", label: "Method", align: "center", width: 70 },
   { key: "http.response.status_code", label: "Status", align: "center", width: 70, render: statusCodeRenderer },
   { key: "url.host", label: "Host", width: 180 },
@@ -530,10 +540,11 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   const [activeCmTopExceptionsQuery, setActiveCmTopExceptionsQuery] = useState<string | null>(null);
   const [activeCmTopRequestErrorsQuery, setActiveCmTopRequestErrorsQuery] = useState<string | null>(null);
   const [activeCmCwvDistributionQuery, setActiveCmCwvDistributionQuery] = useState<string | null>(null);
+  const [activeCmTopPagesQuery, setActiveCmTopPagesQuery] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isExporting3Page, setIsExporting3Page] = useState(false);
   const [notesForExport, setNotesForExport] = useState("");
-  const [notesByTab, setNotesByTab] = useState<Record<number, string>>({ 0: TRENDING_DEFAULT_NOTES, 1: "" });
+  const [notesByTab, setNotesByTab] = useState<Record<number, string>>({ 0: "", 1: "" });
   const [isGenerating, setIsGenerating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chartVisibility, setChartVisibility] = useState<ChartVisibility>({
@@ -614,6 +625,9 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
   );
   const { data: cmCwvDistributionData, isLoading: cmCwvDistributionLoading } = useDql(
     { query: activeCmCwvDistributionQuery! }, { enabled: !!activeCmCwvDistributionQuery }
+  );
+  const { data: cmTopPagesData, isLoading: cmTopPagesLoading } = useDql(
+    { query: activeCmTopPagesQuery! }, { enabled: !!activeCmTopPagesQuery }
   );
 
   const frontendNames: string[] = useMemo(
@@ -795,6 +809,44 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
     [cmTopRequestErrorsData]
   );
 
+  interface CmTopPageRecord {
+    "page.name": string | null;
+    count: number | null;
+    lcp: number | null;
+    inp: number | null;
+    cls: number | null;
+    exceptions: number | null;
+    request_errors: number | null;
+  }
+
+  // ponytail: spoof rows are for demo env only — remove when real data is available
+  const CM_TOP_PAGES_DEMO: PagePerfRow[] = [
+    { name: "/home",           count: 14200, lcp: 2100, inp: 180,  cls: 0.05,  exceptions: 0.12, requestErrors: 0.08 },
+    { name: "/products",       count: 8750,  lcp: 3100, inp: 280,  cls: 0.12,  exceptions: 0.31, requestErrors: 0.22 },
+    { name: "/product/:id",    count: 6100,  lcp: 2800, inp: 220,  cls: 0.08,  exceptions: 0.18, requestErrors: 0.15 },
+    { name: "/search",         count: 5400,  lcp: 3600, inp: 340,  cls: 0.18,  exceptions: 0.42, requestErrors: 0.35 },
+    { name: "/category/:slug", count: 5100,  lcp: 3300, inp: 300,  cls: 0.14,  exceptions: 0.27, requestErrors: 0.19 },
+    { name: "/cart",           count: 3800,  lcp: 2600, inp: 240,  cls: 0.09,  exceptions: 0.35, requestErrors: 0.28 },
+    { name: "/checkout",       count: 4300,  lcp: 4800, inp: 520,  cls: 0.31,  exceptions: 0.89, requestErrors: 0.74 },
+    { name: "/account",        count: 2900,  lcp: 2300, inp: 190,  cls: 0.07,  exceptions: 0.24, requestErrors: 0.11 },
+    { name: "/login",          count: 1800,  lcp: 1800, inp: 150,  cls: 0.03,  exceptions: 0.08, requestErrors: 0.05 },
+  ];
+
+  const cmTopPagesRows: PagePerfRow[] = useMemo(() => {
+    const raw = (cmTopPagesData?.records ?? []) as unknown as CmTopPageRecord[];
+    const real: PagePerfRow[] = raw.map((r) => ({
+      name: r["page.name"] ?? "(unknown)",
+      count: r.count ?? 0,
+      lcp: r.lcp,
+      inp: r.inp,
+      cls: r.cls,
+      exceptions: r.exceptions,
+      requestErrors: r.request_errors,
+    }));
+    const needed = Math.max(0, 10 - real.length);
+    return [...real, ...CM_TOP_PAGES_DEMO.slice(0, needed)];
+  }, [cmTopPagesData]);
+
   const cmDeviceCompareRecords: CmDeviceCompareRecord[] = useMemo(
     () => (cmDeviceCompareData?.records ?? []) as unknown as CmDeviceCompareRecord[],
     [cmDeviceCompareData]
@@ -855,6 +907,7 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
     setActiveCmTopExceptionsQuery(value ? buildCmTopExceptionsQuery(value) : null);
     setActiveCmTopRequestErrorsQuery(value ? buildCmTopRequestErrorsQuery(value) : null);
     setActiveCmCwvDistributionQuery(value ? buildCmCwvDistributionQuery(value) : null);
+    setActiveCmTopPagesQuery(value ? buildCmTopPagesQuery(value) : null);
   }, []);
 
   const handleExport = () => {
@@ -1226,6 +1279,23 @@ export const Dashboard = ({ isLimited = false }: { isLimited?: boolean }) => {
                   </Surface>
                 </Flex>
               ) : null}
+
+              {/* ── TOP PAGES ── */}
+              <SectionHeader label="Top Pages" color={COLORS.userActions} />
+
+              <Surface elevation="raised" padding={24}>
+                <Heading level={5} style={{ marginBottom: 4, marginTop: 0 }}>Page Performance Scorecard</Heading>
+                <Text style={{ fontSize: "0.8rem", color: "var(--dt-colors-text-neutral-subdued, #b1b2d2)", marginBottom: 16, display: "block" }}>
+                  Top 10 pages by visit volume — LCP, INP, CLS, and error averages (p75)
+                </Text>
+                {cmTopPagesLoading ? (
+                  <Flex justifyContent="center" alignItems="center" style={{ minHeight: 120 }}><ProgressCircle /></Flex>
+                ) : cmTopPagesRows.length > 0 ? (
+                  <PagePerformanceTable rows={cmTopPagesRows} />
+                ) : (
+                  <Text>No page data available.</Text>
+                )}
+              </Surface>
 
               {/* ── ERRORS ── */}
               <SectionHeader label="Errors" color={CWV_POOR} />
